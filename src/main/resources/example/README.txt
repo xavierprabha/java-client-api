@@ -56,6 +56,9 @@ The examples illustrate the following common tasks:
 Each example is a Java application that you can compile and run using the jar
 file for the Java API and its dependencies.
 
+Note:  To run GraphSPARQLExample, you must enable a triple index on your database
+(Documents database by default).
+
 Note:  To run SSLClientCreator, you must modify the REST server by specifying
 an SSL certificate template.  The other examples do not use SSL.
 
@@ -75,11 +78,6 @@ To compile the XOM example, first download the library at version 1.2.5 or
 higher from:
 
     http://www.xom.nu/
-
-To compile the Jackson example (which uses the tree model), first download
-the core and databinding libraries at 2.0.4 or higher as linked from:
-
-    http://wiki.fasterxml.com/JacksonHome
 
 To compile the Apache HTTPClient example, you use the Apache HTTPClient
 bundled with the MarkLogic Java API in the lib subdirectory.

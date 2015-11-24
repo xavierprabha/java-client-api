@@ -70,6 +70,8 @@ public class TestBulkWriteWithTransformations extends BasicJavaClientREST{
 	public static void tearDownAfterClass() throws Exception {
 		System.out.println("In tear down" );
 		tearDownJavaRESTServer(dbName, fNames, restServerName);
+		deleteRESTUser("eval-user");
+		deleteUserRole("test-eval");
 	}
 
 	@Before
@@ -111,6 +113,8 @@ public class TestBulkWriteWithTransformations extends BasicJavaClientREST{
 			// set the transformer
 			handle.setTransformer(transformer);
 			writeset.add(docId[i],handle);
+			//Close handle.
+			handle.close();
 		}
 		docMgr.write(writeset);
 		FileHandle dh = new FileHandle();

@@ -317,8 +317,8 @@ public class StructuredQueryBuilder {
     }
 
     /**
-     * Matches a query within the substructure contained by an element or JSON key.
-     * @param index	the element or JSON key
+     * Matches a query within the substructure contained by an element or JSON property.
+     * @param index	the element or JSON property
      * @param query	the query over the contained substructure
      * @return	the StructuredQueryDefinition for the container query
      */
@@ -390,7 +390,7 @@ public class StructuredQueryBuilder {
     }
 
     /**
-     * Matches an element, attribute, json key, or field
+     * Matches an element, attribute, JSON property, or field
      * that has a value with the same string value as at least one
      * of the criteria values.
      * @param index	the value container
@@ -401,7 +401,7 @@ public class StructuredQueryBuilder {
         return new ValueQuery(index, null, null, null, values);
     }
     /**
-     * Matches a json key that has a value with the same boolean value
+     * Matches a JSON property that has a value with the same boolean value
      * as at least one of the criteria values.  Note this method will not match
      * any XML node.
      * @param index	the value container
@@ -412,7 +412,7 @@ public class StructuredQueryBuilder {
         return new ValueQuery(index, null, null, null, new Object[] {value});
     }
     /**
-     * Matches an json key that has a value with the same numeric
+     * Matches an JSON property that has a value with the same numeric
      * value as at least one of the criteria values.  Note this method will not
      * match any XML node.
      * @param index	the value container
@@ -423,7 +423,7 @@ public class StructuredQueryBuilder {
         return new ValueQuery(index, null, null, null, values);
     }
     /**
-     * Matches an element, attribute, json key, or field
+     * Matches an element, attribute, JSON property, or field
      * that has a value with the same string value as at least one
      * of the criteria values.
      * @param index	the value container
@@ -437,7 +437,7 @@ public class StructuredQueryBuilder {
         return new ValueQuery(index, scope, options, weight, values);
     }
     /**
-     * Matches an json key that has a value with the same boolean
+     * Matches a JSON property that has a value with the same boolean
      * value as at least one of the criteria values.  Note this method will not
      * match any XML node.
      * @param index	the value container
@@ -451,7 +451,7 @@ public class StructuredQueryBuilder {
         return new ValueQuery(index, scope, options, weight, new Object[] {value});
     }
     /**
-     * Matches an json key that has a value with the same numeric
+     * Matches a JSON property that has a value with the same numeric
      * value as at least one of the criteria values.  Note this method will not
      * match any XML node.
      * @param index	the value container
@@ -466,7 +466,7 @@ public class StructuredQueryBuilder {
     }
 
     /**
-     * Matches an element, attribute, json key, or field
+     * Matches an element, attribute, JSON property, or field
      * that has at least one of the criteria words.
      * @param index	the word container
      * @param words	the possible words to match
@@ -476,7 +476,7 @@ public class StructuredQueryBuilder {
         return new WordQuery(index, null, null, null, words);
     }
     /**
-     * Matches an element, attribute, json key, or field
+     * Matches an element, attribute, JSON property, or field
      * that has at least one of the criteria words.
      * @param index	the word container
      * @param scope	whether the query matches the document content or properties
@@ -491,7 +491,7 @@ public class StructuredQueryBuilder {
     }
 
     /**
-     * Matches an element, attribute, json key, field, or path
+     * Matches an element, attribute, JSON property, field, or path
      * whose value that has the correct datatyped comparison with 
      * one of the criteria values.
      * @param index	the range container
@@ -505,7 +505,7 @@ public class StructuredQueryBuilder {
         return new RangeQuery(index, type, null, null, null, operator, values);
     }
     /**
-     * Matches an element, attribute, json key, field, or path
+     * Matches an element, attribute, JSON property, field, or path
      * whose value that has the correct datatyped comparison with 
      * one of the criteria values.
      * @param index	the range container
@@ -520,7 +520,7 @@ public class StructuredQueryBuilder {
         return new RangeQuery(index, type, collation, null, null, operator, values);
     }
     /**
-     * Matches an element, attribute, json key, field, or path
+     * Matches an element, attribute, JSON property, field, or path
      * whose value that has the correct datatyped comparison with 
      * one of the criteria values.
      * @param index	the range container
@@ -537,7 +537,7 @@ public class StructuredQueryBuilder {
         return new RangeQuery(index, type, collation, scope, null, operator, values);
     }
     /**
-     * Matches an element, attribute, json key, field, or path
+     * Matches an element, attribute, JSON property, field, or path
      * whose value that has the correct datatyped comparison with 
      * one of the criteria values.
      * @param index	the range container
@@ -552,7 +552,7 @@ public class StructuredQueryBuilder {
         return new RangeQuery(index, type, null, null, options, operator, values);
     }
     /**
-     * Matches an element, attribute, json key, field, or path
+     * Matches an element, attribute, JSON property, field, or path
      * whose value that has the correct datatyped comparison with 
      * one of the criteria values.
      * @param index	the range container
@@ -568,7 +568,7 @@ public class StructuredQueryBuilder {
         return new RangeQuery(index, type, collation, null, options, operator, values);
     }
     /**
-     * Matches an element, attribute, json key, field, or path
+     * Matches an element, attribute, JSON property, field, or path
      * whose value that has the correct datatyped comparison with 
      * one of the criteria values.
      * @param index	the range container
@@ -662,9 +662,9 @@ public class StructuredQueryBuilder {
     	return new FieldImpl(name);
     }
     /**
-     * Identifies a JSON key to match with a query.
-     * @param name	the name of the JSON key
-     * @return	the identifier for the JSON key
+     * Identifies a JSON property to match with a query.
+     * @param name	the name of the JSON property
+     * @return	the identifier for the JSON property
      */
     public JSONProperty jsonProperty(String name) {
     	return new JSONPropertyImpl(name);
@@ -1901,9 +1901,9 @@ public class StructuredQueryBuilder {
     	private String formattedStart;
     	private String formattedEnd;
     	private String[] options;
-    	TemporalPeriod(Calendar start, Calendar end) {
-    		this.formattedStart = DatatypeConverter.printDateTime(start);
-    		this.formattedEnd = DatatypeConverter.printDateTime(end);
+    	TemporalPeriod(String start, String end) {
+    		this.formattedStart = start;
+    		this.formattedEnd = end;
     	}
     	@Override
     	public void innerSerialize(XMLStreamWriter serializer) throws Exception {
@@ -1968,10 +1968,10 @@ public class StructuredQueryBuilder {
     	private String formattedTimestamp = null;
     	private double weight;
     	private String[] options;
-		TemporalLsqtQuery(String temporalCollection, Calendar timestamp, double weight, String[] options) {
+		TemporalLsqtQuery(String temporalCollection, String timestamp, double weight, String[] options) {
     		this.temporalCollection = temporalCollection;
 			if ( timestamp != null ) {
-				this.formattedTimestamp = DatatypeConverter.printDateTime(timestamp);
+				this.formattedTimestamp = timestamp;
 			}
     		this.weight = weight;
     		this.options = options;
@@ -1980,7 +1980,7 @@ public class StructuredQueryBuilder {
     	public void innerSerialize(XMLStreamWriter serializer) throws Exception {
     		serializer.writeStartElement("lsqt-query");
 			writeText(serializer, "temporal-collection", temporalCollection);
-			if ( formattedTimestamp != null ) {
+			if ( formattedTimestamp != null && formattedTimestamp.length() > 0 ) {
 				writeText(serializer, "timestamp", formattedTimestamp);
 			}
 			writeText(serializer, "weight", weight);
@@ -2769,6 +2769,17 @@ public class StructuredQueryBuilder {
 	 * @param end   the end date/time for this period
 	 */
 	public StructuredQueryBuilder.Period period(Calendar start, Calendar end) {
+		return new TemporalPeriod(DatatypeConverter.printDateTime(start),
+			DatatypeConverter.printDateTime(end));
+	}
+
+	/**
+	 * Construct a temporal period for use in {@link #temporalPeriodRange temporalPeriodRange}
+	 * queries.
+	 * @param start the start date/time for this period, in ISO 8601 format
+	 * @param end   the end date/time for this period, in ISO 8601 format
+	 */
+	public StructuredQueryBuilder.Period period(String start, String end) {
 		return new TemporalPeriod(start, end);
 	}
 
@@ -2839,7 +2850,7 @@ public class StructuredQueryBuilder {
 	/**
 	 * Matches documents with LSQT prior to timestamp
 	 * @param temporalCollection the temporal collection to query
-	 * @param timestamp documents with lsqt prior to this timestamp will match
+	 * @param time documents with lsqt equal to or prior to this timestamp will match
 	 * @param weight the weight for for this query
 	 * @param options string options from the list for
 	 *     <a href="http://docs.marklogic.com/cts:lsqt-query">cts:lsqt-query calls</a>
@@ -2847,7 +2858,26 @@ public class StructuredQueryBuilder {
 	 * @see <a href="http://docs.marklogic.com/guide/search-dev/structured-query#id_85930">
 	 *      Structured Queries: lsqt-query</a>
 	 */
-	public StructuredQueryDefinition temporalLsqtQuery(String temporalCollection, Calendar timestamp,
+	public StructuredQueryDefinition temporalLsqtQuery(String temporalCollection, Calendar time,
+		double weight, String... options)
+	{
+		if ( temporalCollection == null ) throw new IllegalArgumentException("temporalCollection cannot be null");
+		return new TemporalLsqtQuery(temporalCollection, DatatypeConverter.printDateTime(time), weight, options);
+	}
+
+	/**
+	 * Matches documents with LSQT prior to timestamp
+	 * @param temporalCollection the temporal collection to query
+	 * @param timestamp timestamp in ISO 8601 format - documents with lsqt equal to or
+	 *        prior to this timestamp will match
+	 * @param weight the weight for for this query
+	 * @param options string options from the list for
+	 *     <a href="http://docs.marklogic.com/cts:lsqt-query">cts:lsqt-query calls</a>
+	 * @see <a href="http://docs.marklogic.com/cts:lsqt-query">cts:lsqt-query</a>
+	 * @see <a href="http://docs.marklogic.com/guide/search-dev/structured-query#id_85930">
+	 *      Structured Queries: lsqt-query</a>
+	 */
+	public StructuredQueryDefinition temporalLsqtQuery(String temporalCollection, String timestamp,
 		double weight, String... options)
 	{
 		if ( temporalCollection == null ) throw new IllegalArgumentException("temporalCollection cannot be null");

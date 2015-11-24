@@ -1,8 +1,5 @@
 target/
-.classpath
-.project
 .gradle
-.settings/
 *.class
 test-complete/build/
 
@@ -10,3 +7,5 @@ test-complete/build/
 *.jar
 *.war
 *.ear
+.classpath
+.gitignore

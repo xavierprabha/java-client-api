@@ -1,5 +1,4 @@
-/*
- * Copyright 2012-2015 MarkLogic Corporation
+/* * Copyright 2012-2015 MarkLogic Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,8 +84,12 @@ public interface DocumentManager<R extends AbstractReadHandle, W extends Abstrac
     public DocumentUriTemplate newDocumentUriTemplate(String extension);
 
     /**
-     * Creates a builder for specifying changes to the metadata of a document.
-     * @param pathFormat	whether the patch specifies metadata with JSON or XML paths
+     * For XMLDocumentManager or JSONDocumentManager, creates a builder for specifying changes
+     * to the document and metadata of a document.  For GenericDocumentManager,
+     * TextDocumentManager, and BinaryDocumentManager, creates a builder for specifying
+     * changes to only the metadata of a document since binary and text documents cannot
+     * be changed with patches.
+     * @param pathFormat	the patch path language. Set to JSON for JSONPath or XML for XPath.
      * @return	the patch builder
      */
     public DocumentMetadataPatchBuilder newPatchBuilder(Format pathFormat);
@@ -849,6 +852,25 @@ public interface DocumentManager<R extends AbstractReadHandle, W extends Abstrac
      */
     public void delete(String docId, Transaction transaction)
     	throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException;
+    /**
+     * Deletes the documents' metadata and content
+     *
+     * To call delete(), an application must authenticate as rest-writer or rest-admin.
+     *
+     * @param uris	the identifiers for the documents to delete
+     */
+    public void delete(String... uris)
+        throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException;
+    /**
+     * Deletes the documents' metadata and content from an open database transaction
+     *
+     * To call delete(), an application must authenticate as rest-writer or rest-admin.
+     *
+     * @param transaction	an open transaction
+     * @param uris	the identifiers for the documents to delete
+     */
+    public void delete(Transaction transaction, String... uris)
+        throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException;
     /**
      * Deletes the document metadata and content from the database
      * 
