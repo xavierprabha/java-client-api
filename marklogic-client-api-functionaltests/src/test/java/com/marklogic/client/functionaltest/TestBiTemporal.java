@@ -133,10 +133,10 @@ public class TestBiTemporal extends BasicJavaClientREST {
         validEndERIName);
     createDB(schemadbName);
     createForest(schemafNames[0], schemadbName);
-    Thread.sleep(10000);
+    waitForPropertyPropagate();
     // Set the schemadbName database as the Schema database.
     setDatabaseProperties(dbName, "schema-database", schemadbName);
-    Thread.sleep(10000);
+    waitForPropertyPropagate();
 
     // Temporal axis must be created before temporal collection associated with
     // those axes is created
@@ -2171,10 +2171,10 @@ public class TestBiTemporal extends BasicJavaClientREST {
     String docId = "javaSingleJSONDoc.json";
 
     insertJSONSingleDocument(temporalCollectionName, docId, null);
-    Thread.sleep(20000);
+    waitForPropertyPropagate();
 
     updateJSONSingleDocument(temporalCollectionName, docId);
-    Thread.sleep(20000);
+    waitForPropertyPropagate();
 
     // Fetch documents associated with a search term (such as XML) in Address
     // element
