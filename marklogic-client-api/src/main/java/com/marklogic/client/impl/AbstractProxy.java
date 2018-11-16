@@ -46,9 +46,8 @@ import okio.Okio;
 import org.w3c.dom.Document;
 import org.xml.sax.InputSource;
 
-import javax.mail.BodyPart;
-import javax.mail.MessagingException;
-import javax.mail.util.ByteArrayDataSource;
+import org.synchronoss.cloud.nio.multipart.BlockingIOAdapter;
+
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.transform.Source;
@@ -61,8 +60,6 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import javax.mail.internet.MimeMultipart;
 
 // TODO: better name?
 public class AbstractProxy {
@@ -1039,7 +1036,6 @@ public class AbstractProxy {
       void receiveImpl(Request.Builder requestBldr, BasicResponseImpl responseImpl) {
          try {
             Request request = requestBldr.build();
-System.out.println("calling "+request.url().toString());
 /*
 System.out.println(request.body().contentType().toString());
 for (String headerName: request.headers().names()) {
@@ -1129,23 +1125,28 @@ for (String headerName: response.headers().names()) {
       return true;
    }
 // TODO:  move exception throwing into higher-level response body processing?
-   static protected boolean checkNull(MimeMultipart multipart, Format format) {
-      if (multipart != null) {
-         try {
-            if (multipart.getCount() != 0) {
-               BodyPart firstPart   = multipart.getBodyPart(0);
-               String   actualType  = (firstPart == null) ? null : firstPart.getContentType();
-               String   defaultType = (format == Format.BINARY) ?
-                     "application/x-unknown-content-type" : format.getDefaultMimetype();
-               if (actualType == null || !actualType.startsWith(defaultType)) {
-                  throw new RuntimeException(
+   static protected boolean checkNull(PartIterator partItr, Format format) {
+      if (partItr != null) {
+         BlockingIOAdapter.Part firstPart = partItr.peek();
+         if (firstPart != null) {
+            final Map<String, List<String>> firstHeaders = firstPart.getHeaders();
+            List<String> contentTypes = firstHeaders.get("content-type");
+            String contentType = (contentTypes != null && contentTypes.size() > 0 ) ?
+                  contentTypes.get(0) : null;
+            String mimetype =
+                  (contentType == null)       ? null
+                  : contentType.contains(";") ? contentType.substring(0, contentType.indexOf(";"))
+                  : contentType;
+            // TODO: if "; charset=foo" set character set
+            String actualType = (mimetype != null && mimetype.length() > 0) ? mimetype : null;
+            String   defaultType = (format == Format.BINARY) ?
+                  "application/x-unknown-content-type" : format.getDefaultMimetype();
+            if (actualType == null || !actualType.startsWith(defaultType)) {
+               throw new RuntimeException(
                      "Returned document as "+actualType+" instead of "+defaultType
-                  );
-               }
-               return false;
+               );
             }
-         } catch (MessagingException e) {
-            new RuntimeException(e);
+            return false;
          }
       }
       return true;
@@ -1360,168 +1361,74 @@ for (String headerName: response.headers().names()) {
          responseBody = null;
       }
    }
+
+   // TODO:  consolidate with OkHttpServices.MultipleCallResponseImpl?
    static class MultipleResponseImpl extends BasicResponseImpl implements MultipleResponse {
       private Format format;
-      private MimeMultipart multipart;
+      private PartIterator partItr;
       MultipleResponseImpl(Format format){
          this.format = format;
       }
       void setResponse(Response response) {
-         try {
-            super.setResponse(response);
-            ResponseBody responseBody = response.body();
-            if (responseBody == null) {
-               setNull(true);
-               return;
-            }
-            MediaType contentType = responseBody.contentType();
-            if (contentType == null) {
-               setNull(true);
-               return;
-            }
-            ByteArrayDataSource dataSource = new ByteArrayDataSource(
-                  responseBody.byteStream(), contentType.toString()
-            );
-            setMultipart(new MimeMultipart(dataSource));
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         } catch (MessagingException e) {
-            throw new RuntimeException(e);
+         super.setResponse(response);
+         ResponseBody responseBody = response.body();
+         if (responseBody == null) {
+            setNull(true);
+            return;
          }
+         MediaType contentType = responseBody.contentType();
+         if (contentType == null) {
+            setNull(true);
+            return;
+         }
+         PartIterator partItr = new PartIterator(contentType, responseBody);
+         setMultipart(partItr);
       }
-      void setMultipart(MimeMultipart multipart) {
-         if (!checkNull(multipart, format)) {
-            this.multipart = multipart;
+      void setMultipart(PartIterator partItr) {
+         if (!checkNull(partItr, format)) {
+            this.partItr = partItr;
             setNull(false);
          }
       }
 
+      private Stream<BlockingIOAdapter.Part> asStreamOfParts() {
+         if (partItr == null) {
+            return Stream.empty();
+         }
+
+         return partItr.stream();
+      }
+
       @Override
       public Stream<byte[]> asStreamOfBytes() {
-         try {
-            if (multipart == null) {
-               return Stream.empty();
-            }
-            int partCount = multipart.getCount();
-
-            Stream.Builder<byte[]> builder = Stream.builder();
-            for (int i=0; i < partCount; i++) {
-               BodyPart bodyPart = multipart.getBodyPart(i);
-               builder.accept(NodeConverter.InputStreamToBytes(bodyPart.getInputStream()));
-            }
-            return builder.build();
-         } catch (MessagingException e) {
-            throw new RuntimeException(e);
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         }
+         return asStreamOfParts().map(part -> NodeConverter.InputStreamToBytes(part.getPartBody()));
       }
       @Override
       public Stream<InputStreamHandle> asStreamOfInputStreamHandle() {
-         try {
-            if (multipart == null) {
-               return Stream.empty();
-            }
-            int partCount = multipart.getCount();
-
-            Stream.Builder<InputStreamHandle> builder = Stream.builder();
-            for (int i=0; i < partCount; i++) {
-               BodyPart bodyPart = multipart.getBodyPart(i);
-               builder.accept(new InputStreamHandle(bodyPart.getInputStream()));
-            }
-            return builder.build();
-         } catch (MessagingException e) {
-            throw new RuntimeException(e);
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         }
+         return asStreamOfParts().map(part -> new InputStreamHandle(part.getPartBody()));
       }
       @Override
       public Stream<InputStream> asStreamOfInputStream() {
-         try {
-            if (multipart == null) {
-               return Stream.empty();
-            }
-            int partCount = multipart.getCount();
-
-            Stream.Builder<InputStream> builder = Stream.builder();
-            for (int i=0; i < partCount; i++) {
-               BodyPart bodyPart = multipart.getBodyPart(i);
-               builder.accept(bodyPart.getInputStream());
-            }
-            return builder.build();
-         } catch (MessagingException e) {
-            throw new RuntimeException(e);
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         }
+         return asStreamOfParts().map(part -> part.getPartBody());
       }
       @Override
       public Stream<Reader> asStreamOfReader() {
-         try {
-            if (multipart == null) {
-               return Stream.empty();
-            }
-            int partCount = multipart.getCount();
-
-            Stream.Builder<Reader> builder = Stream.builder();
-            for (int i=0; i < partCount; i++) {
-               BodyPart bodyPart = multipart.getBodyPart(i);
-               builder.accept(NodeConverter.InputStreamToReader(bodyPart.getInputStream()));
-            }
-            return builder.build();
-         } catch (MessagingException e) {
-            throw new RuntimeException(e);
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         }
+         return asStreamOfParts().map(part -> NodeConverter.InputStreamToReader(part.getPartBody()));
       }
       @Override
       public Stream<ReaderHandle> asStreamOfReaderHandle() {
-         try {
-            if (multipart == null) {
-               return Stream.empty();
-            }
-            int partCount = multipart.getCount();
-
-            Stream.Builder<ReaderHandle> builder = Stream.builder();
-            for (int i=0; i < partCount; i++) {
-               BodyPart bodyPart = multipart.getBodyPart(i);
-               builder.accept(new ReaderHandle(NodeConverter.InputStreamToReader(bodyPart.getInputStream())));
-            }
-            return builder.build();
-         } catch (MessagingException e) {
-            throw new RuntimeException(e);
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         }
+         return asStreamOfParts().map(part -> new ReaderHandle(NodeConverter.InputStreamToReader(part.getPartBody())));
       }
       @Override
       public Stream<String> asStreamOfString() {
-         try {
-            if (multipart == null) {
-               return Stream.empty();
-            }
-            int partCount = multipart.getCount();
-
-            Stream.Builder<String> builder = Stream.builder();
-            for (int i=0; i < partCount; i++) {
-               BodyPart bodyPart = multipart.getBodyPart(i);
-               builder.accept(NodeConverter.InputStreamToString(bodyPart.getInputStream()));
-            }
-            return builder.build();
-         } catch (MessagingException e) {
-            throw new RuntimeException(e);
-         } catch (IOException e) {
-            throw new RuntimeException(e);
-         }
+         return asStreamOfParts().map(part -> NodeConverter.InputStreamToString(part.getPartBody()));
       }
    }
 
    protected SessionState newSessionStateImpl() {
       return new SessionStateImpl();
    }
-// TODO: use okhttp3.CookieJar for cookies? spin off into standalone impl class?
+   // TODO: use okhttp3.CookieJar for cookies? spin off into standalone impl class?
    static private class SessionStateImpl implements SessionState {
       private String sessionId;
       protected SessionStateImpl() {

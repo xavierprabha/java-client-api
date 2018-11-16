@@ -90,9 +90,7 @@ public class BasicPage<T> implements Page<T> {
     if ( size != null ) return size.longValue();
     if ( getPageSize() == 0 ) {
       return 0;
-    } else if ( hasNextPage() ) {
-      return getPageSize();
-    } else if ((getTotalSize() % getPageSize()) == 0) {
+    } else if (hasNextPage() || (getTotalSize() % getPageSize()) == 0) {
       return getPageSize();
     } else {
       return getTotalSize() % getPageSize();
