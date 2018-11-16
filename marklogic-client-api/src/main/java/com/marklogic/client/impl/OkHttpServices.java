@@ -94,7 +94,6 @@ import okhttp3.HttpUrl;
 import okhttp3.Interceptor;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
-import okhttp3.MultipartBody.Part;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -113,12 +112,12 @@ import com.burgstaller.okhttp.digest.DigestAuthenticator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.mail.BodyPart;
-import javax.mail.Header;
-import javax.mail.MessagingException;
-import javax.mail.internet.MimeMultipart;
-import javax.mail.util.ByteArrayDataSource;
-import javax.net.ssl.*;
+import org.synchronoss.cloud.nio.multipart.BlockingIOAdapter;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.X509TrustManager;
 import javax.xml.bind.DatatypeConverter;
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
@@ -144,8 +143,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 @SuppressWarnings({ "unchecked", "rawtypes" })
 public class OkHttpServices implements RESTServices {
@@ -164,6 +166,11 @@ public class OkHttpServices implements RESTServices {
 
   private final static MediaType URLENCODED_MIME_TYPE = MediaType.parse("application/x-www-form-urlencoded; charset=UTF-8");
   private final static String UTF8_ID = StandardCharsets.UTF_8.toString();
+
+  private static Pattern CONTENT_DISPOSITION_FILENAME_REGEX =
+        // attachment; filename="filename.json"
+        // form-data; name="fieldName"; filename="filename.json"
+        Pattern.compile(";\\s*filename\\s*=\\s*\"([^\"]+)\"");
 
   static final private ConnectionPool connectionPool = new ConnectionPool();
 
@@ -245,10 +252,10 @@ public class OkHttpServices implements RESTServices {
     SSLContext sslContext = null;
     SSLHostnameVerifier sslVerifier = null;
     X509TrustManager trustManager = null;
-      
-    if (host == null) 
+
+    if (host == null)
     	throw new IllegalArgumentException("No host provided");
-    
+
     OkHttpClient.Builder clientBldr = new OkHttpClient.Builder()
     	      .followRedirects(false)
     	      .followSslRedirects(false)
@@ -259,7 +266,7 @@ public class OkHttpServices implements RESTServices {
     	      // no timeouts since some of our clients' reads and writes can be massive
     	      .readTimeout(0, TimeUnit.SECONDS)
     	      .writeTimeout(0, TimeUnit.SECONDS);
-    
+
 	if (securityContext instanceof BasicAuthContext) {
 	    BasicAuthContext basicContext = (BasicAuthContext) securityContext;
 	    if (basicContext.getSSLContext() != null) {
@@ -268,7 +275,7 @@ public class OkHttpServices implements RESTServices {
                 trustManager = basicContext.getTrustManager();
         }
 		clientBldr = configureAuthentication(basicContext, clientBldr);
-	} 
+	}
 	else if (securityContext instanceof DigestAuthContext) {
 	    DigestAuthContext digestContext = (DigestAuthContext) securityContext;
 	    if (digestContext.getSSLContext() != null) {
@@ -277,7 +284,7 @@ public class OkHttpServices implements RESTServices {
                 trustManager = digestContext.getTrustManager();
         }
 		clientBldr = configureAuthentication((DigestAuthContext) securityContext, clientBldr);
-	} 
+	}
 	else if (securityContext instanceof KerberosAuthContext) {
 		KerberosAuthContext kerberosContext = (KerberosAuthContext) securityContext;
 		if (kerberosContext.getSSLContext() != null) {
@@ -285,7 +292,7 @@ public class OkHttpServices implements RESTServices {
 			if (kerberosContext.getTrustManager() != null)
 				trustManager = kerberosContext.getTrustManager();
 		}
-	    clientBldr = configureAuthentication(kerberosContext, host,clientBldr); 
+	    clientBldr = configureAuthentication(kerberosContext, host,clientBldr);
 	} else if (securityContext instanceof CertificateAuthContext) {
 		CertificateAuthContext certificateContext = (CertificateAuthContext) securityContext;
 		type = Authentication.CERTIFICATE;
@@ -308,7 +315,7 @@ public class OkHttpServices implements RESTServices {
 	if ((securityContext.getSSLContext() != null) || securityContext instanceof CertificateAuthContext) {
         if (securityContext.getSSLHostnameVerifier() != null) {
             sslVerifier = securityContext.getSSLHostnameVerifier();
-        } 
+        }
         else {
 	        sslVerifier = SSLHostnameVerifier.COMMON;
 	    }
@@ -325,8 +332,8 @@ public class OkHttpServices implements RESTServices {
 		hostnameVerifier = null;
 	} else if (sslVerifier != null) {
 		hostnameVerifier = new SSLHostnameVerifier.HostnameVerifierAdapter(sslVerifier);
-	} 
-	
+	}
+
     this.database = database;
 
     this.baseUri = new HttpUrl.Builder()
@@ -431,40 +438,40 @@ public class OkHttpServices implements RESTServices {
     // httpParams.setIntParameter(CoreProtocolPNames.WAIT_FOR_CONTINUE, 1000);
     */
   }
-  
+
   public OkHttpClient.Builder configureAuthentication(BasicAuthContext basicAuthContext, OkHttpClient.Builder clientBuilder) {
       String user = basicAuthContext.getUser();
       String password = basicAuthContext.getPassword();
       type = Authentication.BASIC;
-      if (user == null) 
+      if (user == null)
           throw new IllegalArgumentException("No user provided");
-      if (password == null) 
+      if (password == null)
           throw new IllegalArgumentException("No password provided");
       Credentials credentials = new Credentials(user, password);
 	  OkHttpClient.Builder builder = clientBuilder;
 	  Interceptor interceptor = new HTTPBasicAuthInterceptor(credentials);
 	  checkFirstRequest = false;
-	  
-	  if(interceptor != null) 
+
+	  if(interceptor != null)
 		  builder.addInterceptor(interceptor);
 	  return builder;
   }
-  
+
   public OkHttpClient.Builder configureAuthentication(DigestAuthContext digestAuthContext, OkHttpClient.Builder clientBuilder) {
 	  	OkHttpClient.Builder builder = clientBuilder;
         String user = digestAuthContext.getUser();
         String password = digestAuthContext.getPassword();
         type = Authentication.DIGEST;
-        if (user == null) 
+        if (user == null)
             throw new IllegalArgumentException("No user provided");
-        if (password == null) 
+        if (password == null)
             throw new IllegalArgumentException("No password provided");
         Credentials credentials = new Credentials(user, password);
         final Map<String,CachingAuthenticator> authCache = new ConcurrentHashMap<String,CachingAuthenticator>();
 	    CachingAuthenticator authenticator = new DigestAuthenticator(credentials);
 	    Interceptor interceptor =  new AuthenticationCacheInterceptor(authCache);
         checkFirstRequest = true;
-        
+
         if(authenticator != null) {
         	builder.authenticator(new CachingAuthenticatorDecorator(authenticator, authCache));
         }
@@ -473,23 +480,23 @@ public class OkHttpServices implements RESTServices {
         }
 	    return builder;
   }
-  
+
   public OkHttpClient.Builder configureAuthentication(KerberosAuthContext keberosAuthContext, String host, OkHttpClient.Builder clientBuilder) {
 	  type = Authentication.KERBEROS;
 	  Map<String, String> kerberosOptions = keberosAuthContext.getKrbOptions();
 	  Interceptor interceptor = new HTTPKerberosAuthInterceptor(host, kerberosOptions);
       checkFirstRequest = false;
 	  OkHttpClient.Builder builder = clientBuilder;
-	  if(interceptor != null) 
+	  if(interceptor != null)
 		  builder.addInterceptor(interceptor);
 	  return builder;
   }
-  
+
   public OkHttpClient.Builder configureAuthentication(SAMLAuthContext samlAuthContext, OkHttpClient.Builder clientBuilder) {
       type = Authentication.SAML;
       Interceptor interceptor = null;
       String authorizationTokenValue = samlAuthContext.getToken();
-      
+
       if(authorizationTokenValue != null && authorizationTokenValue.length() > 0) {
           interceptor = new HTTPSamlAuthInterceptor(authorizationTokenValue);
       } else if(samlAuthContext.getAuthorizer()!=null) {
@@ -498,11 +505,11 @@ public class OkHttpServices implements RESTServices {
           interceptor = new HTTPSamlAuthInterceptor(samlAuthContext.getAuthorization(),samlAuthContext.getRenewer());
       } else
           throw new IllegalArgumentException("Either a call back or renewer expected.");
-	  
+
       checkFirstRequest = false;
 	  OkHttpClient.Builder builder = clientBuilder;
-	  
-	  if(interceptor != null) 
+
+	  if(interceptor != null)
 		  builder.addInterceptor(interceptor);
 	  return builder;
   }
@@ -927,7 +934,7 @@ public class OkHttpServices implements RESTServices {
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
     {
     boolean hasMetadata = categories != null && categories.size() > 0;
-    OkHttpResultIterator iterator =
+    DefaultOkHttpResultIterator iterator =
       getBulkDocumentsImpl(reqlog, serverTimestamp, transaction, categories, format, extraParams,
         withContent, uris);
     return new OkHttpDocumentPage(iterator, withContent, hasMetadata);
@@ -945,35 +952,29 @@ public class OkHttpServices implements RESTServices {
   {
     boolean hasMetadata = categories != null && categories.size() > 0;
     boolean hasContent = true;
-    OkHttpResultIterator iterator =
+    DefaultOkHttpResultIterator iterator =
       getBulkDocumentsImpl(reqlog, serverTimestamp, querydef, start, pageLength, transaction,
         searchHandle, view, categories, format, responseTransform, extraParams);
     return new OkHttpDocumentPage(iterator, hasContent, hasMetadata);
   }
 
   private class OkHttpDocumentPage extends BasicPage<DocumentRecord> implements DocumentPage, Iterator<DocumentRecord> {
-    private OkHttpResultIterator iterator;
+    private DefaultOkHttpResultIterator iterator;
     private Iterator<DocumentRecord> docRecordIterator;
-    private boolean hasMetadata;
-    private boolean hasContent;
 
-    OkHttpDocumentPage(OkHttpResultIterator iterator, boolean hasContent, boolean hasMetadata) {
+    OkHttpDocumentPage(DefaultOkHttpResultIterator iterator, boolean hasContent, boolean hasMetadata) {
+      this(iterator, OkHttpServices.toList(iterator, hasContent, hasMetadata), hasContent, hasMetadata);
+    }
+    OkHttpDocumentPage(
+          DefaultOkHttpResultIterator iterator, ArrayList<DocumentRecord> list, boolean hasContent, boolean hasMetadata
+    ) {
       super(
-        new ArrayList<DocumentRecord>().iterator(),
-        iterator != null ? iterator.getStart() : 1,
-        iterator != null ? iterator.getPageSize() : 0,
-        iterator != null ? iterator.getTotalSize() : 0
+            list.iterator(),
+            iterator != null ? iterator.getStart()     : 1,
+            iterator != null ? iterator.getPageSize()  : 0,
+            iterator != null ? iterator.getTotalSize() : 0
       );
-      this.iterator = iterator;
-      this.hasContent = hasContent;
-      this.hasMetadata = hasMetadata;
-      if ( iterator == null ) {
-        setSize(0);
-      } else if ( hasContent && hasMetadata ) {
-        setSize(iterator.getSize() / 2);
-      } else {
-        setSize(iterator.getSize());
-      }
+      setSize(list.size());
     }
 
     @Override
@@ -982,35 +983,8 @@ public class OkHttpServices implements RESTServices {
     }
 
     @Override
-    public boolean hasNext() {
-      if ( iterator == null ) return false;
-      return iterator.hasNext();
-    }
-
-    @Override
     public void remove() {
       throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public DocumentRecord next() {
-      if ( iterator == null ) throw new NoSuchElementException("No documents available");
-      OkHttpResult result = iterator.next();
-      DocumentRecord record;
-      if ( hasContent && hasMetadata ) {
-        OkHttpResult metadata = result;
-        OkHttpResult content = iterator.next();
-        record = new OkHttpDocumentRecord(content, metadata);
-      } else if ( hasContent ) {
-        OkHttpResult content = result;
-        record = new OkHttpDocumentRecord(content);
-      } else if ( hasMetadata ) {
-        OkHttpResult metadata = result;
-        record = new OkHttpDocumentRecord(null, metadata);
-      } else {
-        throw new IllegalStateException("Should never have neither content nor metadata");
-      }
-      return record;
     }
 
     @Override
@@ -1020,11 +994,38 @@ public class OkHttpServices implements RESTServices {
 
     @Override
     public void close() {
-      if ( iterator != null ) iterator.close();
     }
   }
 
-  private OkHttpResultIterator getBulkDocumentsImpl(RequestLogger reqlog, long serverTimestamp,
+  private static ArrayList<DocumentRecord> toList(
+        DefaultOkHttpResultIterator iterator, boolean hasContent, boolean hasMetadata
+  ) {
+    ArrayList<DocumentRecord> list = new ArrayList<>();
+    if (iterator != null) {
+      while (iterator.hasNext()) {
+        OkHttpResult result = iterator.next();
+        DocumentRecord record;
+        if ( hasContent && hasMetadata ) {
+          OkHttpResult metadata = result;
+          OkHttpResult content = iterator.next();
+          record = new OkHttpDocumentRecord(content, metadata);
+        } else if ( hasContent ) {
+          OkHttpResult content = result;
+          record = new OkHttpDocumentRecord(content);
+        } else if ( hasMetadata ) {
+          OkHttpResult metadata = result;
+          record = new OkHttpDocumentRecord(null, metadata);
+        } else {
+          throw new IllegalStateException("Should never have neither content nor metadata");
+        }
+        list.add(record);
+      }
+      iterator.close();
+    }
+    return list;
+  }
+
+  private DefaultOkHttpResultIterator getBulkDocumentsImpl(RequestLogger reqlog, long serverTimestamp,
                                                     Transaction transaction, Set<Metadata> categories,
                                                     Format format, RequestParameters extraParams, boolean withContent,
                                                     String... uris)
@@ -1042,8 +1043,7 @@ public class OkHttpServices implements RESTServices {
         params.add("uri", uri);
       }
     }
-
-    OkHttpResultIterator iterator = getIteratedResourceImpl(DefaultOkHttpResultIterator.class,
+    DefaultOkHttpResultIterator iterator = getIteratedResourceImpl(new DefaultOkHttpResultIterator(),
       reqlog, path, transaction, params, MIMETYPE_MULTIPART_MIXED);
     if ( iterator != null ) {
       if ( iterator.getStart() == -1 ) iterator.setStart(1);
@@ -1055,60 +1055,53 @@ public class OkHttpServices implements RESTServices {
     return iterator;
   }
 
-  private OkHttpResultIterator getBulkDocumentsImpl(RequestLogger reqlog, long serverTimestamp,
+  private DefaultOkHttpResultIterator getBulkDocumentsImpl(RequestLogger reqlog, long serverTimestamp,
                                                     QueryDefinition querydef, long start, long pageLength,
                                                     Transaction transaction, SearchReadHandle searchHandle, QueryView view,
                                                     Set<Metadata> categories, Format format, ServerTransform responseTransform,
                                                     RequestParameters extraParams)
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
   {
-    try {
-      RequestParameters params = new RequestParameters();
-      if ( extraParams != null ) params.putAll(extraParams);
-      boolean withContent = true;
-      addCategoryParams(categories, params, withContent);
-      if ( searchHandle != null && view != null ) params.add("view", view.toString().toLowerCase());
-      if ( start > 1 ) params.add("start", Long.toString(start));
-      if ( pageLength >= 0 ) params.add("pageLength", Long.toString(pageLength));
-      if (serverTimestamp != -1) params.add("timestamp",  Long.toString(serverTimestamp));
-      addPointInTimeQueryParam(params, searchHandle);
-      if ( format != null ) params.add("format", format.toString().toLowerCase());
-      HandleImplementation handleBase = HandleAccessor.as(searchHandle);
-      if ( format == null && searchHandle != null ) {
-        if ( Format.XML == handleBase.getFormat() ) {
-          params.add("format", "xml");
-        } else if ( Format.JSON == handleBase.getFormat() ) {
-          params.add("format", "json");
-        }
+    RequestParameters params = new RequestParameters();
+    if ( extraParams != null ) params.putAll(extraParams);
+    boolean withContent = true;
+    addCategoryParams(categories, params, withContent);
+    if ( searchHandle != null && view != null ) params.add("view", view.toString().toLowerCase());
+    if ( start > 1 ) params.add("start", Long.toString(start));
+    if ( pageLength >= 0 ) params.add("pageLength", Long.toString(pageLength));
+    if (serverTimestamp != -1) params.add("timestamp",  Long.toString(serverTimestamp));
+    addPointInTimeQueryParam(params, searchHandle);
+    if ( format != null ) params.add("format", format.toString().toLowerCase());
+    HandleImplementation handleBase = HandleAccessor.as(searchHandle);
+    if ( format == null && searchHandle != null ) {
+      if ( Format.XML == handleBase.getFormat() ) {
+        params.add("format", "xml");
+      } else if ( Format.JSON == handleBase.getFormat() ) {
+        params.add("format", "json");
       }
-
-      OkHttpSearchRequest request =
-        generateSearchRequest(reqlog, querydef, MIMETYPE_MULTIPART_MIXED, transaction, responseTransform, params, null);
-      Response response = request.getResponse();
-      if ( response == null ) return null;
-      MimeMultipart entity = null;
-      if ( searchHandle != null ) {
-        updateServerTimestamp(handleBase, response.headers());
-        ResponseBody body = response.body();
-        if ( body.contentLength() != 0 ) {
-          entity = getEntity(body, MimeMultipart.class);
-          if ( entity != null ) {
-            List<BodyPart> partList = getPartList(entity);
-            if ( entity.getCount() > 0 ) {
-              BodyPart searchResponsePart = entity.getBodyPart(0);
-              handleBase.receiveContent(getEntity(searchResponsePart, handleBase.receiveAs()));
-              partList = partList.subList(1, partList.size());
-            }
-            Closeable closeable = response;
-            return makeResults(OkHttpServiceResultIterator.class, reqlog, "read", "resource", partList, response,
-              closeable);
-          }
-        }
-      }
-      return makeResults(OkHttpServiceResultIterator.class, reqlog, "read", "resource", response);
-    } catch (MessagingException e) {
-      throw new MarkLogicIOException(e);
     }
+
+    OkHttpSearchRequest request =
+          generateSearchRequest(reqlog, querydef, MIMETYPE_MULTIPART_MIXED, transaction, responseTransform, params, null);
+    Response response = request.getResponse();
+    if ( response == null ) return null;
+    DefaultOkHttpResultIterator resultItr = new DefaultOkHttpResultIterator();
+    if ( searchHandle != null ) {
+      updateServerTimestamp(handleBase, response.headers());
+      ResponseBody body = response.body();
+      if ( body.contentLength() != 0 ) {
+        PartIterator partItr = getEntity(body, PartIterator.class);
+        if (partItr != null) {
+          if (partItr.hasNext()) {
+            BlockingIOAdapter.Part searchResponsePart = partItr.next();
+            handleBase.receiveContent(getEntity(searchResponsePart, handleBase.receiveAs()));
+          }
+          Closeable closeable = response;
+          return initResults(resultItr, reqlog, "read", "resource", partItr, response, closeable);
+        }
+      }
+    }
+    return initResults(resultItr, reqlog, "read", "resource", response);
   }
 
   private boolean getDocumentImpl(RequestLogger reqlog,
@@ -1170,49 +1163,43 @@ public class OkHttpServices implements RESTServices {
       "read %s document from %s transaction with %s metadata categories and content",
       uri, (transaction != null) ? transaction.getTransactionId() : "no", stringJoin(categories, ", ", "no"));
 
-    try {
-      ResponseBody body = response.body();
-      MimeMultipart entity = body.contentLength() != 0 ?
-        getEntity(body, MimeMultipart.class) : null;
-      if (entity == null) return false;
+    ResponseBody body = response.body();
+    PartIterator partItr = body.contentLength() != 0 ? getEntity(body, PartIterator.class) : null;
+    if (partItr == null) return false;
 
-      int partCount = entity.getCount();
-      if (partCount == 0) return false;
-      List<BodyPart> partList = getPartList(entity);
+    if (!partItr.hasNext()) return false;
+    BlockingIOAdapter.Part metadataPart = partItr.next();
 
-      if (partCount != 2) {
-        throw new FailedRequestException("read expected 2 parts but got " + partCount + " parts",
-          extractErrorFields(response));
-      }
-
-      HandleImplementation metadataBase = HandleAccessor.as(metadataHandle);
-      HandleImplementation contentBase = HandleAccessor.as(contentHandle);
-
-      BodyPart contentPart = partList.get(1);
-
-      Headers responseHeaders = response.headers();
-      if (isExternalDescriptor(desc)) {
-        updateVersion(desc, responseHeaders);
-        updateFormat(desc, responseHeaders);
-        updateMimetype(desc, getHeaderMimetype(getHeader(contentPart, HEADER_CONTENT_TYPE)));
-        updateLength(desc, getHeaderLength(getHeader(contentPart, HEADER_CONTENT_LENGTH)));
-        copyDescriptor(desc, contentBase);
-      } else {
-        updateDescriptor(contentBase, responseHeaders);
-      }
-
-      metadataBase.receiveContent(getEntity(partList.get(0),
-        metadataBase.receiveAs()));
-
-      Object contentEntity = getEntity(contentPart, contentBase.receiveAs());
-      contentBase.receiveContent((reqlog != null) ? reqlog.copyContent(contentEntity) : contentEntity);
-
-      response.close();
-
-      return true;
-    } catch (MessagingException e) {
-      throw new MarkLogicIOException(e);
+    if (!partItr.hasNext()) {
+      throw new FailedRequestException("read expected 2 parts but got 1 parts",
+            extractErrorFields(response));
     }
+
+    HandleImplementation metadataBase = HandleAccessor.as(metadataHandle);
+    HandleImplementation contentBase = HandleAccessor.as(contentHandle);
+
+    BlockingIOAdapter.Part contentPart = partItr.next();
+    final Map<String, List<String>> contentHeaders = contentPart.getHeaders();
+
+    Headers responseHeaders = response.headers();
+    if (isExternalDescriptor(desc)) {
+      updateVersion(desc, responseHeaders);
+      updateFormat(desc, responseHeaders);
+      updateMimetype(desc, getHeaderMimetype(getHeader(contentHeaders, HEADER_CONTENT_TYPE.toLowerCase())));
+      updateLength(desc, getHeaderLength(getHeader(contentHeaders, HEADER_CONTENT_LENGTH.toLowerCase())));
+      copyDescriptor(desc, contentBase);
+    } else {
+      updateDescriptor(contentBase, responseHeaders);
+    }
+
+    metadataBase.receiveContent(getEntity(metadataPart, metadataBase.receiveAs()));
+
+    Object contentEntity = getEntity(contentPart, contentBase.receiveAs());
+    contentBase.receiveContent((reqlog != null) ? reqlog.copyContent(contentEntity) : contentEntity);
+
+    response.close();
+
+    return true;
   }
 
   @Override
@@ -1936,11 +1923,12 @@ public class OkHttpServices implements RESTServices {
     return null;
   }
 
-  static private Format getHeaderFormat(BodyPart part) {
-    String contentDisposition = getHeader(part, HEADER_CONTENT_DISPOSITION);
+    static private Format getHeaderFormat(BlockingIOAdapter.Part part) {
+    final Map<String, List<String>> headers = part.getHeaders();
+    String contentDisposition = getHeader(headers, HEADER_CONTENT_DISPOSITION.toLowerCase());
     String formatRegex = ".* format=(text|binary|xml|json).*";
-    String format = getHeader(part, HEADER_VND_MARKLOGIC_DOCUMENT_FORMAT);
-    String contentType = getHeader(part, HEADER_CONTENT_TYPE);
+    String format = getHeader(headers, HEADER_VND_MARKLOGIC_DOCUMENT_FORMAT.toLowerCase());
+    String contentType = getHeader(headers, HEADER_CONTENT_TYPE.toLowerCase());
     if ( format != null && format.length() > 0 ) {
       return Format.valueOf(format.toUpperCase());
     } else if ( contentDisposition != null && contentDisposition.matches(formatRegex) ) {
@@ -1969,19 +1957,6 @@ public class OkHttpServices implements RESTServices {
       return values.get(0);
     }
     return null;
-  }
-
-  static private String getHeader(BodyPart part, String name) {
-    if ( part == null ) throw new MarkLogicInternalException("part must not be null");
-    try {
-      String[] values = part.getHeader(name);
-      if ( values != null && values.length > 0 ) {
-        return values[0];
-      }
-      return null;
-    } catch (MessagingException e) {
-      throw new MarkLogicIOException(e);
-    }
   }
 
   static private String getHeaderMimetype(String contentType) {
@@ -2034,21 +2009,34 @@ public class OkHttpServices implements RESTServices {
     return ContentDescriptor.UNKNOWN_LENGTH;
   }
 
-  static private String getHeaderUri(BodyPart part) {
-    try {
-      if ( part != null ) {
-        return part.getFileName();
+  static private String getHeaderUri(BlockingIOAdapter.Part part) {
+    if (part == null) return null;
+    final Map<String, List<String>> headers = part.getHeaders();
+    String disposition = getHeader(headers, HEADER_CONTENT_DISPOSITION.toLowerCase());
+    if (disposition != null) {
+      Matcher filenameMatcher = CONTENT_DISPOSITION_FILENAME_REGEX.matcher(disposition);
+      if (filenameMatcher.find()) {
+        return filenameMatcher.group(1);
       }
-      // if it's not found, just return null
-      return null;
-    } catch(MessagingException e) {
-      throw new MarkLogicIOException(e);
     }
+    return null;
   }
 
+  private static void updateVersion(DocumentDescriptor descriptor, Headers headers) {
+    long version = DocumentDescriptor.UNKNOWN_VERSION;
+    String value = headers.get(HEADER_ETAG);
+    if (value != null && value.length() > 0) {
+      // trim the double quotes
+      version = Long.parseLong(value.substring(1, value.length() - 1));
+    }
+    descriptor.setVersion(version);
+  }
+/*
+@@@ move above to extractVersion()
   static private void updateVersion(DocumentDescriptor descriptor, Headers headers) {
       updateVersion(descriptor, extractVersion(headers.get(HEADER_ETAG)));
   }
+*/
   static private void updateVersion(DocumentDescriptor descriptor, String header) {
       updateVersion(descriptor, extractVersion(header));
   }
@@ -3149,10 +3137,10 @@ public class OkHttpServices implements RESTServices {
                                                        String path, Transaction transaction, RequestParameters params, String... mimetypes)
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
   {
-    return getIteratedResourceImpl(OkHttpServiceResultIterator.class, reqlog, path, transaction, params, mimetypes);
+    return getIteratedResourceImpl(new OkHttpServiceResultIterator(), reqlog, path, transaction, params, mimetypes);
   }
 
-  private <U extends OkHttpResultIterator> U getIteratedResourceImpl(Class<U> clazz, RequestLogger reqlog,
+  private <U extends OkHttpResultIterator> U getIteratedResourceImpl(U resultItr, RequestLogger reqlog,
                                                                      String path, Transaction transaction, RequestParameters params, String... mimetypes)
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
   {
@@ -3175,7 +3163,7 @@ public class OkHttpServices implements RESTServices {
     checkStatus(response, status, "read", "resource", path,
       ResponseStatus.OK_OR_NO_CONTENT);
 
-    return makeResults(clazz, reqlog, "read", "resource", response);
+    return initResults(resultItr, reqlog, "read", "resource", response);
   }
 
   @Override
@@ -3859,7 +3847,7 @@ public class OkHttpServices implements RESTServices {
     }
     StringHandle input = new StringHandle(formUrlEncodedPayload)
       .withMimetype("application/x-www-form-urlencoded");
-    return new OkHttpEvalResultIterator( postIteratedResourceImpl(DefaultOkHttpResultIterator.class,
+    return new OkHttpEvalResultIterator( postIteratedResourceImpl(new DefaultOkHttpResultIterator(),
       reqlog, path, transaction, params, input) );
   }
 
@@ -3881,12 +3869,12 @@ public class OkHttpServices implements RESTServices {
                                                         String... outputMimetypes)
     throws ResourceNotFoundException, ResourceNotResendableException, ForbiddenUserException, FailedRequestException
   {
-    return postIteratedResourceImpl(OkHttpServiceResultIterator.class,
-      reqlog, path, transaction, params, input, outputMimetypes);
+    return postIteratedResourceImpl(new OkHttpServiceResultIterator(), reqlog, path, transaction, params, input, outputMimetypes);
   }
 
   private <U extends OkHttpResultIterator> U postIteratedResourceImpl(
-    Class<U> clazz, final RequestLogger reqlog,
+    U resultItr,
+    final RequestLogger reqlog,
     final String path, Transaction transaction, RequestParameters params,
     AbstractWriteHandle input, String... outputMimetypes)
     throws ResourceNotFoundException, ResourceNotResendableException, ForbiddenUserException, FailedRequestException
@@ -3925,7 +3913,7 @@ public class OkHttpServices implements RESTServices {
     checkStatus(response, status, "apply", "resource", path,
       ResponseStatus.OK_OR_CREATED_OR_NO_CONTENT);
 
-    return makeResults(clazz, reqlog, "apply", "resource", response);
+    return initResults(resultItr, reqlog, "apply", "resource", response);
   }
 
   @Override
@@ -3934,13 +3922,14 @@ public class OkHttpServices implements RESTServices {
     W[] input, String... outputMimetypes)
     throws ResourceNotFoundException, ResourceNotResendableException, ForbiddenUserException, FailedRequestException
   {
-    return postIteratedResourceImpl(OkHttpServiceResultIterator.class,
-      reqlog, path, transaction, params, input, outputMimetypes);
+    return postIteratedResourceImpl(
+          new OkHttpServiceResultIterator(), reqlog, path, transaction, params, input, outputMimetypes
+    );
   }
 
   private <W extends AbstractWriteHandle, U extends OkHttpResultIterator> U postIteratedResourceImpl(
-    Class<U> clazz, RequestLogger reqlog, String path, Transaction transaction,
-    RequestParameters params, W[] input, String... outputMimetypes)
+        U  resultItr, RequestLogger reqlog, String path, Transaction transaction,
+        RequestParameters params, W[] input, String... outputMimetypes)
     throws ResourceNotFoundException, ResourceNotResendableException, ForbiddenUserException, FailedRequestException
   {
     if ( params == null ) params = new RequestParameters();
@@ -4000,7 +3989,7 @@ public class OkHttpServices implements RESTServices {
     checkStatus(response, status, "apply", "resource", path,
       ResponseStatus.OK_OR_CREATED_OR_NO_CONTENT);
 
-    return makeResults(clazz, reqlog, "apply", "resource", response);
+    return initResults(resultItr, reqlog, "apply", "resource", response);
   }
 
   @Override
@@ -4049,7 +4038,7 @@ public class OkHttpServices implements RESTServices {
                                              RequestParameters params, Object mimetype) {
     if (path == null) throw new IllegalArgumentException("Read with null path");
 
-    logger.debug(String.format("Getting %s as %s", path, mimetype));
+    logger.debug("Getting {} as {}", path, mimetype);
 
     return setupRequest(path, params);
   }
@@ -4298,15 +4287,15 @@ public class OkHttpServices implements RESTServices {
         }
       }
 
-      Part bodyPart = null;
+      MultipartBody.Part bodyPart = null;
       if (value instanceof OutputStreamSender) {
-        bodyPart = Part.create(partHeaders.build(), new StreamingOutputImpl(
+        bodyPart = MultipartBody.Part.create(partHeaders.build(), new StreamingOutputImpl(
           (OutputStreamSender) value, reqlog, mediaType));
       } else {
         if (reqlog != null) {
-          bodyPart = Part.create(partHeaders.build(), new ObjectRequestBody(reqlog.copyContent(value), mediaType));
+          bodyPart = MultipartBody.Part.create(partHeaders.build(), new ObjectRequestBody(reqlog.copyContent(value), mediaType));
         } else {
-          bodyPart = Part.create(partHeaders.build(), new ObjectRequestBody(value, mediaType));
+          bodyPart = MultipartBody.Part.create(partHeaders.build(), new ObjectRequestBody(value, mediaType));
         }
       }
 
@@ -4421,45 +4410,39 @@ public class OkHttpServices implements RESTServices {
     return (reqlog != null) ? reqlog.copyContent(entity) : entity;
   }
 
-  private <U extends OkHttpResultIterator> U makeResults(
-    Class<U> clazz, RequestLogger reqlog,
-    String operation, String entityType, Response response) {
+  private <U extends OkHttpResultIterator> U initResults(
+        U result, RequestLogger reqlog, String operation, String entityType, Response response) {
     if ( response == null ) return null;
     ResponseBody body = response.body();
-    MimeMultipart entity = body.contentLength() != 0 ?
-      getEntity(body, MimeMultipart.class) : null;
+    PartIterator partItr = body.contentLength() == 0 ? null : getEntity(body, PartIterator.class);
 
-    List<BodyPart> partList = getPartList(entity);
-    Closeable closeable = response;
-    return makeResults(clazz, reqlog, operation, entityType, partList, response, closeable);
+    return initResults(result, reqlog, operation, entityType, partItr, response, (Closeable) response);
   }
 
-  private <U extends OkHttpResultIterator> U makeResults(
-    Class<U> clazz, RequestLogger reqlog,
-    String operation, String entityType, List<BodyPart> partList, Response response,
-    Closeable closeable) {
+  private <U extends OkHttpResultIterator> U initResults(
+        U result, RequestLogger reqlog, String operation, String entityType,
+        PartIterator partItr, Response response, Closeable closeable) {
     logRequest(reqlog, "%s for %s", operation, entityType);
 
     if ( response == null ) return null;
 
-    try {
-      java.lang.reflect.Constructor<U> constructor =
-        clazz.getConstructor(OkHttpServices.class, RequestLogger.class, List.class, Closeable.class);
-      OkHttpResultIterator result = constructor.newInstance(this, reqlog, partList, closeable);
-      Headers headers = response.headers();
-      if (headers.get(HEADER_VND_MARKLOGIC_START) != null) {
-        result.setStart(Long.parseLong(headers.get(HEADER_VND_MARKLOGIC_START)));
-      }
-      if (headers.get(HEADER_VND_MARKLOGIC_PAGELENGTH) != null) {
-        result.setPageSize(Long.parseLong(headers.get(HEADER_VND_MARKLOGIC_PAGELENGTH)));
-      }
-      if (headers.get(HEADER_VND_MARKLOGIC_RESULT_ESTIMATE) != null) {
-        result.setTotalSize(Long.parseLong(headers.get(HEADER_VND_MARKLOGIC_RESULT_ESTIMATE)));
-      }
-      return (U) result;
-    } catch (Throwable t) {
-      throw new MarkLogicInternalException("Error instantiating " + clazz.getName(), t);
+    result.init(reqlog, partItr, closeable);
+
+    Headers headers = response.headers();
+    String startHdr = headers.get(HEADER_VND_MARKLOGIC_START);
+    if (startHdr != null) {
+      result.setStart(Long.parseLong(startHdr));
     }
+    String lengthHdr = headers.get(HEADER_VND_MARKLOGIC_PAGELENGTH);
+    if (lengthHdr != null) {
+      result.setPageSize(Long.parseLong(lengthHdr));
+    }
+    String totalHdr = headers.get(HEADER_VND_MARKLOGIC_RESULT_ESTIMATE);
+    if (totalHdr != null) {
+      result.setTotalSize(Long.parseLong(totalHdr));
+    }
+
+    return result;
   }
 
   private boolean isStreaming(Object value) {
@@ -4514,7 +4497,7 @@ public class OkHttpServices implements RESTServices {
 
   public class OkHttpResult {
     private RequestLogger reqlog;
-    private BodyPart part;
+    private BlockingIOAdapter.Part part;
     private boolean extractedHeaders = false;
     private String uri;
     private RequestParameters headers = new RequestParameters();
@@ -4522,7 +4505,7 @@ public class OkHttpServices implements RESTServices {
     private String mimetype;
     private long length;
 
-    public OkHttpResult(RequestLogger reqlog, BodyPart part) {
+    public OkHttpResult(RequestLogger reqlog, BlockingIOAdapter.Part part) {
       this.reqlog = reqlog;
       this.part = part;
     }
@@ -4590,122 +4573,111 @@ public class OkHttpServices implements RESTServices {
 
     private void extractHeaders() {
       if (part == null || extractedHeaders) return;
-      try {
-        for ( Enumeration<Header> e = part.getAllHeaders(); e.hasMoreElements(); ) {
-          Header header = e.nextElement();
-          headers.put(header.getName(), header.getValue());
-        }
-        format = getHeaderFormat(part);
-        mimetype = getHeaderMimetype(OkHttpServices.getHeader(part, HEADER_CONTENT_TYPE));
-        length = getHeaderLength(OkHttpServices.getHeader(part, HEADER_CONTENT_LENGTH));
-        uri = getHeaderUri(part);
-        extractedHeaders = true;
-      } catch (MessagingException e) {
-        throw new MarkLogicIOException(e);
-      }
+      final Map<String, List<String>> partHeaders = part.getHeaders();
+      headers.putAll(partHeaders);
+      extractedHeaders = true;
+      format = OkHttpServices.getHeaderFormat(part);
+      mimetype = OkHttpServices.getHeaderMimetype(OkHttpServices.getHeader(partHeaders, HEADER_CONTENT_TYPE.toLowerCase()));
+      length = OkHttpServices.getHeaderLength(OkHttpServices.getHeader(partHeaders, HEADER_CONTENT_LENGTH.toLowerCase()));
+      uri = OkHttpServices.getHeaderUri(part);
     }
   }
 
   public class OkHttpServiceResult extends OkHttpResult implements RESTServices.RESTServiceResult {
-    public OkHttpServiceResult(RequestLogger reqlog, BodyPart part) {
+    public OkHttpServiceResult(RequestLogger reqlog, BlockingIOAdapter.Part part) {
       super(reqlog, part);
     }
   }
 
-  public class OkHttpResultIterator<T extends OkHttpResult> {
+  public abstract class OkHttpResultIterator<T extends OkHttpResult> {
     private RequestLogger reqlog;
-    private Iterator<BodyPart> partQueue;
-    private Class<T> clazz;
+    private Iterator<BlockingIOAdapter.Part> partItr;
     private long start = -1;
     private long size = -1;
     private long pageSize = -1;
     private long totalSize = -1;
     private Closeable closeable;
 
-    public OkHttpResultIterator(RequestLogger reqlog,
-                                List<BodyPart> partList, Class<T> clazz, Closeable closeable) {
-      this.clazz = clazz;
+    public OkHttpResultIterator() {
+      super();
+    }
+
+    public void init(RequestLogger reqlog, PartIterator partItr, Closeable closeable) {
       this.reqlog = reqlog;
-      if (partList != null && partList.size() > 0) {
-        this.size = partList.size();
-        this.partQueue = new ConcurrentLinkedQueue<>(
-          partList).iterator();
-      } else {
+      if (partItr == null) {
         this.size = 0;
+      } else {
+        ConcurrentLinkedQueue<BlockingIOAdapter.Part> partQueue = new ConcurrentLinkedQueue<>();
+        partItr.forEachRemaining(partQueue::add);
+        partItr.close();
+        this.partItr = partQueue.iterator();
+        this.size = partQueue.size();
+        this.closeable = closeable;
       }
-      this.closeable = closeable;
     }
 
     public long getStart() {
       return start;
     }
-
     public OkHttpResultIterator<T> setStart(long start) {
       this.start = start;
       return this;
     }
-
     public long getSize() {
       return size;
     }
-
     public OkHttpResultIterator<T> setSize(long size) {
       this.size = size;
       return this;
     }
-
     public long getPageSize() {
       return pageSize;
     }
-
     public OkHttpResultIterator<T> setPageSize(long pageSize) {
       this.pageSize = pageSize;
       return this;
     }
-
     public long getTotalSize() {
       return totalSize;
     }
-
     public OkHttpResultIterator<T> setTotalSize(long totalSize) {
       this.totalSize = totalSize;
       return this;
     }
 
-
     public boolean hasNext() {
-      if (partQueue == null) return false;
-      boolean hasNext = partQueue.hasNext();
+      if (partItr == null) return false;
+      boolean hasNext = partItr.hasNext();
       return hasNext;
     }
 
     public T next() {
-      if (partQueue == null) return null;
-
-      try {
-        java.lang.reflect.Constructor<T> constructor =
-          clazz.getConstructor(OkHttpServices.class, RequestLogger.class, BodyPart.class);
-        return constructor.newInstance(new OkHttpServices(), reqlog, partQueue.next());
-      } catch (Throwable t) {
-        throw new IllegalStateException("Error instantiating " + clazz.getName(), t);
-      }
+      if (partItr == null) return null;
+      BlockingIOAdapter.Part part = partItr.next();
+      if (part == null) return null;
+      return makeNext(reqlog, part);
     }
 
+    protected abstract T makeNext(RequestLogger reqlog, BlockingIOAdapter.Part part);
+
     public void remove() {
-      if (partQueue == null) return;
-      partQueue.remove();
-      if (!partQueue.hasNext()) close();
+      if (partItr == null) return;
+      partItr.remove();
+      if (!partItr.hasNext()) close();
     }
 
     public void close() {
-      partQueue = null;
+      if (partItr != null) {
+        partItr = null;
+      }
       reqlog = null;
-      if ( closeable != null ) {
+      if (closeable != null) {
         try {
           closeable.close();
         } catch (IOException e) {
           throw new MarkLogicIOException(e);
         }
+        closeable = null;
       }
     }
   }
@@ -4714,9 +4686,12 @@ public class OkHttpServices implements RESTServices {
     extends OkHttpResultIterator<OkHttpServiceResult>
     implements RESTServiceResultIterator
   {
-    public OkHttpServiceResultIterator(RequestLogger reqlog,
-                                       List<BodyPart> partList, Closeable closeable) {
-      super(reqlog, partList, OkHttpServiceResult.class, closeable);
+    public OkHttpServiceResultIterator() {
+      super();
+    }
+    @Override
+    protected OkHttpServiceResult makeNext(RequestLogger reqlog, BlockingIOAdapter.Part part) {
+      return new OkHttpServiceResult(reqlog, part);
     }
   }
 
@@ -4724,13 +4699,17 @@ public class OkHttpServices implements RESTServices {
     extends OkHttpResultIterator<OkHttpResult>
     implements Iterator<OkHttpResult>
   {
-    public DefaultOkHttpResultIterator(RequestLogger reqlog,
-                                       List<BodyPart> partList, Closeable closeable) {
-      super(reqlog, partList, OkHttpResult.class, closeable);
+    public DefaultOkHttpResultIterator() {
+      super();
+    }
+
+    @Override
+    protected OkHttpResult makeNext(RequestLogger reqlog, BlockingIOAdapter.Part part) {
+      return new OkHttpResult(reqlog, part);
     }
   }
 
-  public class OkHttpDocumentRecord implements DocumentRecord {
+  public static class OkHttpDocumentRecord implements DocumentRecord {
     private OkHttpResult content;
     private OkHttpResult metadata;
 
@@ -5372,19 +5351,15 @@ public class OkHttpServices implements RESTServices {
     return response.message().replaceFirst("^\\d+ ", "");
   }
 
-  private <T> T getEntity(BodyPart part, Class<T> as) {
-    try {
-      String contentType = part.getContentType();
-      return getEntity(ResponseBody.create(MediaType.parse(contentType), part.getSize(),
-        Okio.buffer(Okio.source(part.getInputStream()))), as);
-    } catch (IOException e) {
-      throw new MarkLogicIOException(e);
-    } catch (MessagingException e) {
-      throw new MarkLogicIOException(e);
-    }
+  private <T> T getEntity(BlockingIOAdapter.Part part, Class<T> as) {
+    final Map<String, List<String>> headers = part.getHeaders();
+    long contentLength = getHeaderLength(getHeader(headers, HEADER_CONTENT_LENGTH.toLowerCase()));
+    String contentType = getHeaderMimetype(getHeader(headers, HEADER_CONTENT_TYPE.toLowerCase()));
+    return getEntity(ResponseBody.create(MediaType.parse(contentType), contentLength,
+          Okio.buffer(Okio.source(part.getPartBody()))), as);
   }
 
-  private MediaType makeType(String mimetype) {
+  private static MediaType makeType(String mimetype) {
     if ( mimetype == null ) return null;
     MediaType type = MediaType.parse(mimetype);
     if ( type == null ) throw new IllegalArgumentException("Invalid mime-type: " + mimetype);
@@ -5401,9 +5376,8 @@ public class OkHttpServices implements RESTServices {
         return (T) body.charStream();
       } else if ( as == String.class ) {
         return (T) body.string();
-      } else if ( as == MimeMultipart.class ) {
-        ByteArrayDataSource dataSource = new ByteArrayDataSource(body.byteStream(), body.contentType().toString());
-        return (T) new MimeMultipart(dataSource);
+      } else if ( as == PartIterator.class ) {
+        return (T) new PartIterator(body);
       } else if ( as == File.class ) {
         // write out the response body to a temp file in the system temp folder
         // then return the path to that file as a File object
@@ -5458,21 +5432,6 @@ public class OkHttpServices implements RESTServices {
           "Try InputStream, Reader, String, byte[], File.");
       }
     } catch (IOException e) {
-      throw new MarkLogicIOException(e);
-    } catch (MessagingException e) {
-      throw new MarkLogicIOException(e);
-    }
-  }
-
-  private List<BodyPart> getPartList(MimeMultipart multipart) {
-    try {
-      if ( multipart == null ) return null;
-      List<BodyPart> partList = new ArrayList<BodyPart>();
-      for ( int i = 0; i < multipart.getCount(); i++ ) {
-        partList.add(multipart.getBodyPart(i));
-      }
-      return partList;
-    } catch (MessagingException e) {
       throw new MarkLogicIOException(e);
     }
   }
@@ -5838,7 +5797,7 @@ public class OkHttpServices implements RESTServices {
                     }
                 }
             }
-        } 
+        }
         else {
           throw new IllegalStateException(
               "unknown multipart "+paramName+" param of: "+param.getClass().getName()
@@ -6049,159 +6008,62 @@ public class OkHttpServices implements RESTServices {
 
   static class MultipleCallResponseImpl extends CallResponseImpl implements MultipleCallResponse {
     private Format format;
-    private MimeMultipart multipart;
+    private PartIterator partItr;
     MultipleCallResponseImpl(Format format){
       this.format = format;
     }
     void setResponse(Response response) {
-      try {
-        super.setResponse(response);
-        ResponseBody responseBody = response.body();
-        if (responseBody == null) {
-          setNull(true);
-          return;
-        }
-        MediaType contentType = responseBody.contentType();
-        if (contentType == null) {
-          setNull(true);
-          return;
-        }
-        ByteArrayDataSource dataSource = new ByteArrayDataSource(
-            responseBody.byteStream(), contentType.toString()
-        );
-        setMultipart(new MimeMultipart(dataSource));
-      } catch (IOException e) {
-        throw new MarkLogicIOException(e);
-      } catch (MessagingException e) {
-        throw new MarkLogicIOException(e);
+      super.setResponse(response);
+      ResponseBody responseBody = response.body();
+      if (responseBody == null) {
+        setNull(true);
+        return;
       }
+      MediaType contentType = responseBody.contentType();
+      if (contentType == null) {
+        setNull(true);
+        return;
+      }
+      setMultipart(new PartIterator(contentType, responseBody));
     }
-    void setMultipart(MimeMultipart multipart) {
-      if (!checkNull(multipart, format)) {
-        this.multipart = multipart;
+    void setMultipart(PartIterator partItr) {
+      if (!checkNull(partItr, format)) {
+        this.partItr = partItr;
         setNull(false);
       }
     }
 
+    private Stream<BlockingIOAdapter.Part> asStreamOfParts() {
+      if (partItr == null) {
+        return Stream.empty();
+      }
+
+      return partItr.stream();
+    }
+
     @Override
     public Stream<byte[]> asStreamOfBytes() {
-      try {
-        if (multipart == null) {
-          return Stream.empty();
-        }
-        int partCount = multipart.getCount();
-
-        Stream.Builder<byte[]> builder = Stream.builder();
-        for (int i=0; i < partCount; i++) {
-          BodyPart bodyPart = multipart.getBodyPart(i);
-          builder.accept(NodeConverter.InputStreamToBytes(bodyPart.getInputStream()));
-        }
-        return builder.build();
-      } catch (MessagingException e) {
-        throw new RuntimeException(e);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
+      return asStreamOfParts().map(part -> NodeConverter.InputStreamToBytes(part.getPartBody()));
     }
     @Override
     public Stream<InputStreamHandle> asStreamOfInputStreamHandle() {
-      try {
-        if (multipart == null) {
-          return Stream.empty();
-        }
-        int partCount = multipart.getCount();
-
-        Stream.Builder<InputStreamHandle> builder = Stream.builder();
-        for (int i=0; i < partCount; i++) {
-          BodyPart bodyPart = multipart.getBodyPart(i);
-          builder.accept(new InputStreamHandle(bodyPart.getInputStream()));
-        }
-        return builder.build();
-      } catch (MessagingException e) {
-        throw new MarkLogicIOException(e);
-      } catch (IOException e) {
-        throw new MarkLogicIOException(e);
-      }
+      return asStreamOfParts().map(part -> new InputStreamHandle(part.getPartBody()));
     }
     @Override
     public Stream<InputStream> asStreamOfInputStream() {
-      try {
-        if (multipart == null) {
-          return Stream.empty();
-        }
-        int partCount = multipart.getCount();
-
-        Stream.Builder<InputStream> builder = Stream.builder();
-        for (int i=0; i < partCount; i++) {
-          BodyPart bodyPart = multipart.getBodyPart(i);
-          builder.accept(bodyPart.getInputStream());
-        }
-        return builder.build();
-      } catch (MessagingException e) {
-        throw new MarkLogicIOException(e);
-      } catch (IOException e) {
-        throw new MarkLogicIOException(e);
-      }
+      return asStreamOfParts().map(part -> part.getPartBody());
     }
     @Override
     public Stream<Reader> asStreamOfReader() {
-      try {
-        if (multipart == null) {
-          return Stream.empty();
-        }
-        int partCount = multipart.getCount();
-
-        Stream.Builder<Reader> builder = Stream.builder();
-        for (int i=0; i < partCount; i++) {
-          BodyPart bodyPart = multipart.getBodyPart(i);
-          builder.accept(NodeConverter.InputStreamToReader(bodyPart.getInputStream()));
-        }
-        return builder.build();
-      } catch (MessagingException e) {
-        throw new MarkLogicIOException(e);
-      } catch (IOException e) {
-        throw new MarkLogicIOException(e);
-      }
+      return asStreamOfParts().map(part -> NodeConverter.InputStreamToReader(part.getPartBody()));
     }
     @Override
     public Stream<ReaderHandle> asStreamOfReaderHandle() {
-      try {
-        if (multipart == null) {
-          return Stream.empty();
-        }
-        int partCount = multipart.getCount();
-
-        Stream.Builder<ReaderHandle> builder = Stream.builder();
-        for (int i=0; i < partCount; i++) {
-          BodyPart bodyPart = multipart.getBodyPart(i);
-          builder.accept(new ReaderHandle(NodeConverter.InputStreamToReader(bodyPart.getInputStream())));
-        }
-        return builder.build();
-      } catch (MessagingException e) {
-        throw new MarkLogicIOException(e);
-      } catch (IOException e) {
-        throw new MarkLogicIOException(e);
-      }
+      return asStreamOfParts().map(part -> new ReaderHandle(NodeConverter.InputStreamToReader(part.getPartBody())));
     }
     @Override
     public Stream<String> asStreamOfString() {
-      try {
-        if (multipart == null) {
-          return Stream.empty();
-        }
-        int partCount = multipart.getCount();
-
-        Stream.Builder<String> builder = Stream.builder();
-        for (int i=0; i < partCount; i++) {
-          BodyPart bodyPart = multipart.getBodyPart(i);
-          builder.accept(NodeConverter.InputStreamToString(bodyPart.getInputStream()));
-        }
-        return builder.build();
-      } catch (MessagingException e) {
-        throw new MarkLogicIOException(e);
-      } catch (IOException e) {
-        throw new MarkLogicIOException(e);
-      }
+      return asStreamOfParts().map(part -> NodeConverter.InputStreamToString(part.getPartBody()));
     }
   }
 
@@ -6229,30 +6091,24 @@ public class OkHttpServices implements RESTServices {
     }
     return true;
   }
-  static protected boolean checkNull(MimeMultipart multipart, Format expectedFormat) {
-    if (multipart != null) {
-      try {
-        if (multipart.getCount() != 0) {
-          BodyPart firstPart   = multipart.getBodyPart(0);
-          String   actualType  = (firstPart == null) ? null : firstPart.getContentType();
-          if (actualType == null) {
-            throw new RuntimeException(
-                "Returned document with unknown mime type instead of "+expectedFormat.getDefaultMimetype()
-            );
-          }
-          Format actualFormat = Format.getFromMimetype(actualType);
-          if (expectedFormat != actualFormat) {
-            throw new RuntimeException(
-                "Mime type "+actualType+" for returned document not recognized for "+expectedFormat.name()
-            );
-          }
-          return false;
+
+  static protected boolean checkNull(PartIterator partItr, Format format) {
+    if (partItr != null) {
+      BlockingIOAdapter.Part firstPart = partItr.peek();
+      if (firstPart != null) {
+        final Map<String, List<String>> firstHeaders = firstPart.getHeaders();
+        String actualType = getHeaderMimetype(getHeader(firstHeaders, HEADER_CONTENT_TYPE.toLowerCase()));
+        String   defaultType = (format == Format.BINARY) ?
+              "application/x-unknown-content-type" : format.getDefaultMimetype();
+        if (actualType == null || !actualType.startsWith(defaultType)) {
+          throw new RuntimeException(
+                "Returned document as "+actualType+" instead of "+defaultType
+          );
         }
-      } catch (MessagingException e) {
-        new MarkLogicIOException(e);
+        return false;
       }
     }
-    return true;
+      return true;
   }
 
   Request.Builder forDocumentResponse(Request.Builder requestBldr, Format format) {
