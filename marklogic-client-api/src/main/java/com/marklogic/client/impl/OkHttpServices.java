@@ -117,8 +117,12 @@ import javax.mail.Header;
 import javax.mail.MessagingException;
 import javax.mail.internet.MimeMultipart;
 import javax.mail.util.ByteArrayDataSource;
+import javax.naming.InvalidNameException;
+import javax.naming.ldap.LdapName;
+import javax.naming.ldap.Rdn;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.X509TrustManager;
 import javax.xml.bind.DatatypeConverter;
@@ -137,6 +141,9 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateParsingException;
+import java.security.cert.X509Certificate;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -169,7 +176,7 @@ public class OkHttpServices implements RESTServices {
   private HttpUrl baseUri;
   private OkHttpClient client;
   private boolean released = false;
-  private String authorizationTokenValue = null;
+  private String headerValue = "Authorization";
 
   private Random randRetry    = new Random();
 
@@ -470,7 +477,7 @@ public class OkHttpServices implements RESTServices {
 			SAMLAuthContext samlAuthContext = (SAMLAuthContext) securityContext;
 			type = Authentication.SAML;
 			sslContext = samlAuthContext.getSSLContext();
-			authorizationTokenValue = samlAuthContext.getToken();
+			headerValue = samlAuthContext.getToken();
 			if (samlAuthContext.getTrustManager() != null)
 				trustManager = samlAuthContext.getTrustManager();
 			if (samlAuthContext.getSSLHostnameVerifier() != null) {
@@ -4323,8 +4330,8 @@ public class OkHttpServices implements RESTServices {
     }
     Request.Builder request = new Request.Builder()
         .url(uri.build());
-    if(authorizationTokenValue!=null && authorizationTokenValue.length()!=0) {
-    	String samlHeaderValue = HEADER_AUTHORIZATION + ": " + AUTHORIZATION_TYPE_SAML+ " "+ AUTHORIZATION_PARAM_TOKEN + "=" + authorizationTokenValue;
+    if(headerValue!=null && headerValue.length()!=0) {
+		String samlHeaderValue = "Authorization: SAML token="+ headerValue;
 		request = request.header(HEADER_AUTHORIZATION, samlHeaderValue);
 	}
     return request;
