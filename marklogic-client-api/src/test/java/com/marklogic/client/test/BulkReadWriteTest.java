@@ -175,6 +175,9 @@ public class BulkReadWriteTest {
         validateRecord(record);
         numRead++;
       }
+/* TODO: DEBUG
+why parsing next
+ */
       assertEquals("Should have results", true, page.hasContent());
       assertEquals("Failed to read number of records expected", 3, numRead);
       assertEquals("Failed to report number of records expected", 3, page.size());
@@ -547,12 +550,12 @@ public class BulkReadWriteTest {
       jdm.delete(t1, uris);
       // read from outside any transaction (the docs are still there)
       documents = jdm.read(uris);
-      documents.close();
       assertEquals(8, documents.size());
+      documents.close();
       // read from inside the transaction (the docs are gone)
       documents = jdm.read(t1, uris);
-      documents.close();
       assertEquals(0, documents.size());
+      documents.close();
     } finally {
       t1.commit();
     }

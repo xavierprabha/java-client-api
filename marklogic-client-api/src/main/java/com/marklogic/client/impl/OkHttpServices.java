@@ -113,10 +113,7 @@ import org.slf4j.LoggerFactory;
 
 import org.synchronoss.cloud.nio.multipart.BlockingIOAdapter;
 
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.*;
 import javax.xml.bind.DatatypeConverter;
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
@@ -926,111 +923,20 @@ public class OkHttpServices implements RESTServices {
     return true;
   }
 
+  // read documents
   @Override
   public DocumentPage getBulkDocuments(RequestLogger reqlog, long serverTimestamp,
                                        Transaction transaction, Set<Metadata> categories,
                                        Format format, RequestParameters extraParams, boolean withContent, String... uris)
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
     {
-    boolean hasMetadata = categories != null && categories.size() > 0;
-    DefaultOkHttpResultIterator iterator =
-      getBulkDocumentsImpl(reqlog, serverTimestamp, transaction, categories, format, extraParams,
-        withContent, uris);
-    return new OkHttpDocumentPage(iterator, withContent, hasMetadata);
-  }
-
-  @Override
-  public DocumentPage getBulkDocuments(RequestLogger reqlog, long serverTimestamp,
-                                       QueryDefinition querydef,
-                                       long start, long pageLength,
-                                       Transaction transaction,
-                                       SearchReadHandle searchHandle, QueryView view,
-                                       Set<Metadata> categories, Format format, ServerTransform responseTransform,
-                                       RequestParameters extraParams)
-    throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
-  {
-    boolean hasMetadata = categories != null && categories.size() > 0;
-    boolean hasContent = true;
-    DefaultOkHttpResultIterator iterator =
-      getBulkDocumentsImpl(reqlog, serverTimestamp, querydef, start, pageLength, transaction,
-        searchHandle, view, categories, format, responseTransform, extraParams);
-    return new OkHttpDocumentPage(iterator, hasContent, hasMetadata);
-  }
-
-  private class OkHttpDocumentPage extends BasicPage<DocumentRecord> implements DocumentPage, Iterator<DocumentRecord> {
-    private DefaultOkHttpResultIterator iterator;
-    private Iterator<DocumentRecord> docRecordIterator;
-
-    OkHttpDocumentPage(DefaultOkHttpResultIterator iterator, boolean hasContent, boolean hasMetadata) {
-      this(iterator, OkHttpServices.toList(iterator, hasContent, hasMetadata), hasContent, hasMetadata);
-    }
-    OkHttpDocumentPage(
-          DefaultOkHttpResultIterator iterator, ArrayList<DocumentRecord> list, boolean hasContent, boolean hasMetadata
-    ) {
-      super(
-            list.iterator(),
-            iterator != null ? iterator.getStart()     : 1,
-            iterator != null ? iterator.getPageSize()  : 0,
-            iterator != null ? iterator.getTotalSize() : 0
-      );
-      setSize(list.size());
-    }
-
-    @Override
-    public Iterator<DocumentRecord> iterator() {
-      return this;
-    }
-
-    @Override
-    public void remove() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public <T extends AbstractReadHandle> T nextContent(T contentHandle) {
-      return next().getContent(contentHandle);
-    }
-
-    @Override
-    public void close() {
-    }
-  }
-
-  private static ArrayList<DocumentRecord> toList(
-        DefaultOkHttpResultIterator iterator, boolean hasContent, boolean hasMetadata
-  ) {
-    ArrayList<DocumentRecord> list = new ArrayList<>();
-    if (iterator != null) {
-      while (iterator.hasNext()) {
-        OkHttpResult result = iterator.next();
-        DocumentRecord record;
-        if ( hasContent && hasMetadata ) {
-          OkHttpResult metadata = result;
-          OkHttpResult content = iterator.next();
-          record = new OkHttpDocumentRecord(content, metadata);
-        } else if ( hasContent ) {
-          OkHttpResult content = result;
-          record = new OkHttpDocumentRecord(content);
-        } else if ( hasMetadata ) {
-          OkHttpResult metadata = result;
-          record = new OkHttpDocumentRecord(null, metadata);
-        } else {
-          throw new IllegalStateException("Should never have neither content nor metadata");
-        }
-        list.add(record);
-      }
-      iterator.close();
-    }
-    return list;
-  }
-
-  private DefaultOkHttpResultIterator getBulkDocumentsImpl(RequestLogger reqlog, long serverTimestamp,
-                                                    Transaction transaction, Set<Metadata> categories,
-                                                    Format format, RequestParameters extraParams, boolean withContent,
-                                                    String... uris)
-    throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
-  {
-
+/* TODO:
+other consumers are getIteratedResourceImpl() which is used only within getBulkDocumentsImpl()
+    and getIteratedResource() but that doesn't expose a page concept
+and postIteratedResourceImpl() which is used for OkHttpEvalResultIterator but that doesn't expose a page concept
+and postIteratedResource() but that doesn't expose a page concept
+account for first part in search case
+ */
     String path = "documents";
     RequestParameters params = new RequestParameters();
     if ( extraParams != null ) params.putAll(extraParams);
@@ -1042,23 +948,26 @@ public class OkHttpServices implements RESTServices {
         params.add("uri", uri);
       }
     }
-    DefaultOkHttpResultIterator iterator = getIteratedResourceImpl(new DefaultOkHttpResultIterator(),
-      reqlog, path, transaction, params, MIMETYPE_MULTIPART_MIXED);
-    if ( iterator != null ) {
-      if ( iterator.getStart() == -1 ) iterator.setStart(1);
-      if ( iterator.getSize() != -1 ) {
-        if ( iterator.getPageSize() == -1 ) iterator.setPageSize(iterator.getSize());
-        if ( iterator.getTotalSize() == -1 )  iterator.setTotalSize(iterator.getSize());
-      }
+    Response response = getIteratableResponse(path, transaction, params);
+// TODO: postIteratedResourceImpl()
+    DefaultOkHttpResultIterator resultItr = getIteratedResourceImpl(new DefaultOkHttpResultIterator(), reqlog, response);
+    boolean hasMetadata = categories != null && categories.size() > 0;
+    OkHttpDocumentPage docPage = new OkHttpDocumentPage(resultItr, withContent, hasMetadata);
+    initResults(docPage, response);
+    docPage.setPageSize(uris.length);
+    docPage.setTotalSize(uris.length);
+    return docPage;
     }
-    return iterator;
-  }
 
-  private DefaultOkHttpResultIterator getBulkDocumentsImpl(RequestLogger reqlog, long serverTimestamp,
-                                                    QueryDefinition querydef, long start, long pageLength,
-                                                    Transaction transaction, SearchReadHandle searchHandle, QueryView view,
-                                                    Set<Metadata> categories, Format format, ServerTransform responseTransform,
-                                                    RequestParameters extraParams)
+  // query for documents
+  @Override
+  public DocumentPage getBulkDocuments(RequestLogger reqlog, long serverTimestamp,
+                                       QueryDefinition querydef,
+                                       long start, long pageLength,
+                                       Transaction transaction,
+                                       SearchReadHandle searchHandle, QueryView view,
+                                       Set<Metadata> categories, Format format, ServerTransform responseTransform,
+                                       RequestParameters extraParams)
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
   {
     RequestParameters params = new RequestParameters();
@@ -1095,12 +1004,146 @@ public class OkHttpServices implements RESTServices {
             BlockingIOAdapter.Part searchResponsePart = partItr.next();
             handleBase.receiveContent(getEntity(searchResponsePart, handleBase.receiveAs()));
           }
-          Closeable closeable = response;
-          return initResults(resultItr, reqlog, "read", "resource", partItr, response, closeable);
+          resultItr = initResults(resultItr, reqlog, "read", "resource", partItr, response);
+        }
+      }
+    } else {
+      resultItr = initResults(resultItr, reqlog, "read", "resource", response);
+    }
+    boolean hasMetadata = categories != null && categories.size() > 0;
+    OkHttpDocumentPage docPage = new OkHttpDocumentPage(resultItr, withContent, hasMetadata);
+    initResults(docPage, response);
+    return docPage;
+  }
+
+// TODO: concurrent access?
+  private class OkHttpDocumentPage extends BasicPage<DocumentRecord> implements DocumentPage, Iterator<DocumentRecord> {
+    private boolean isBuffered = false;
+    private long recordCount = 0;
+
+    OkHttpDocumentPage(DefaultOkHttpResultIterator iterator, boolean hasContent, boolean hasMetadata) {
+      super(new DocumentRecordIterator(iterator, hasContent, hasMetadata));
+    }
+
+    @Override
+    public long size() {
+      if (!isBuffered) {
+        bufferRecords();
+      }
+      return super.size();
+    }
+
+    @Override
+    public DocumentRecord next() {
+      DocumentRecord nextRecord = super.next();
+      if (!isBuffered && nextRecord != null) {
+        recordCount++;
+      }
+      return nextRecord;
+    }
+
+    private synchronized void bufferRecords() {
+      if (isBuffered) return;
+      DocumentRecordIterator iterator = getIteratorImpl();
+      if (iterator != null && iterator.hasNext()) {
+        List<DocumentRecord> list = iterator.toList();
+        setIterator(list.iterator());
+        setSize(recordCount + list.size());
+      } else {
+        setSize(recordCount);
+      }
+      recordCount = 0;
+      isBuffered = true;
+    }
+
+    @Override
+    public Iterator<DocumentRecord> iterator() {
+      return this;
+    }
+    @Override
+    public void remove() {
+      throw new UnsupportedOperationException();
+    }
+    @Override
+    public <T extends AbstractReadHandle> T nextContent(T contentHandle) {
+      return next().getContent(contentHandle);
+    }
+    @Override
+    public void close() {
+      if (!isBuffered) {
+        DocumentRecordIterator iterator = getIteratorImpl();
+        if (iterator != null) {
+          iterator.close();
         }
       }
     }
-    return initResults(resultItr, reqlog, "read", "resource", response);
+    private DocumentRecordIterator getIteratorImpl() {
+      return (DocumentRecordIterator) super.iterator();
+    }
+
+// TODO:  also finalize iterator over parts; also replace finalizers with java.lang.ref.Cleaner
+
+    @Override
+    protected void finalize() throws Throwable {
+      close();
+      super.finalize();
+    }
+  }
+
+  private static class DocumentRecordIterator implements Iterator<DocumentRecord>, Closeable {
+    private DefaultOkHttpResultIterator iterator;
+    private boolean hasContent;
+    private boolean hasMetadata;
+    DocumentRecordIterator(DefaultOkHttpResultIterator iterator, boolean hasContent, boolean hasMetadata) {
+      if (!hasContent && !hasMetadata){
+        throw new IllegalStateException("Should never have neither content nor metadata");
+      }
+      this.iterator    = iterator;
+      this.hasContent  = hasContent;
+      this.hasMetadata = hasMetadata;
+    }
+    @Override
+    public boolean hasNext() {
+      if (iterator == null) return false;
+      return iterator.hasNext();
+    }
+    @Override
+    public DocumentRecord next() {
+      if (iterator == null) return null;
+      OkHttpResult result = iterator.next();
+      if (hasContent && hasMetadata) {
+        OkHttpResult metadata = result;
+        OkHttpResult content = iterator.next();
+        return new OkHttpDocumentRecord(content, metadata);
+      } else if (hasContent) {
+        OkHttpResult content = result;
+        return new OkHttpDocumentRecord(content);
+      } else if (hasMetadata) {
+        OkHttpResult metadata = result;
+        return new OkHttpDocumentRecord(null, metadata);
+      } else {
+        throw new IllegalStateException("Should never have neither content nor metadata");
+      }
+    }
+    @Override
+    public void remove() {
+      throw new UnsupportedOperationException();
+    }
+    @Override
+    public void close() {
+      if (iterator != null) {
+        iterator.close();
+        iterator = null;
+      }
+    }
+    ArrayList<DocumentRecord> toList() {
+      ArrayList<DocumentRecord> list = new ArrayList<>();
+      while (hasNext()) {
+        list.add(next());
+      }
+      close();
+      return list;
+    }
   }
 
   private boolean getDocumentImpl(RequestLogger reqlog,
@@ -1956,19 +1999,6 @@ public class OkHttpServices implements RESTServices {
       return values.get(0);
     }
     return null;
-  }
-
-  private static String getHeader(BodyPart part, String name) {
-    if ( part == null ) throw new MarkLogicInternalException("part must not be null");
-    try {
-      String[] values = part.getHeader(name);
-      if ( values != null && values.length > 0 ) {
-        return values[0];
-      }
-      return null;
-    } catch (MessagingException e) {
-      throw new MarkLogicIOException(e);
-    }
   }
 
   private static String getHeaderMimetype(String contentType) {
@@ -3140,11 +3170,22 @@ public class OkHttpServices implements RESTServices {
     return getIteratedResourceImpl(new OkHttpServiceResultIterator(), reqlog, path, transaction, params, mimetypes);
   }
 
-  private <U extends OkHttpResultIterator> U getIteratedResourceImpl(U resultItr, RequestLogger reqlog,
-                                                                     String path, Transaction transaction, RequestParameters params, String... mimetypes)
-    throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
+  private <U extends OkHttpResultIterator> U getIteratedResourceImpl(
+          U resultItr, RequestLogger reqlog, String path, Transaction transaction, RequestParameters params, String... mimetypes
+  ) throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
   {
-    if ( params == null ) params = new RequestParameters();
+    Response response = getIteratableResponse(path, transaction, params);
+    return getIteratedResourceImpl(resultItr, reqlog, response);
+  }
+  private <U extends OkHttpResultIterator> U getIteratedResourceImpl(U resultItr, RequestLogger reqlog, Response response)
+      throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
+  {
+    return initResults(resultItr, reqlog, "read", "resource", response);
+  }
+  private Response getIteratableResponse(String path, Transaction transaction, RequestParameters params)
+      throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
+  {
+    if (params == null)      params = new RequestParameters();
     if (transaction != null) params.add("txid", transaction.getTransactionId());
 
     Request.Builder requestBldr = makeGetWebResource(path, params, null);
@@ -3158,12 +3199,13 @@ public class OkHttpServices implements RESTServices {
         return doGet(funcBuilder);
       }
     };
+
     Response response = sendRequestWithRetry(requestBldr, (transaction == null), doGetFunction, null);
     int status = response.code();
     checkStatus(response, status, "read", "resource", path,
       ResponseStatus.OK_OR_NO_CONTENT);
 
-    return initResults(resultItr, reqlog, "read", "resource", response);
+    return response;
   }
 
   @Override
@@ -3567,8 +3609,10 @@ public class OkHttpServices implements RESTServices {
 
     @Override
     public boolean hasNext() {
-      if ( iterator == null ) return false;
-      return iterator.hasNext();
+      if (iterator == null) return false;
+      boolean hasNext = iterator.hasNext();
+      if (!hasNext) close();
+      return hasNext;
     }
 
     @Override
@@ -3578,15 +3622,13 @@ public class OkHttpServices implements RESTServices {
 
     @Override
     public EvalResult next() {
-      if ( iterator == null ) throw new NoSuchElementException("No results available");
-      OkHttpResult jerseyResult = iterator.next();
-      EvalResult result = new OkHttpEvalResult(jerseyResult);
-      return result;
+      if (!hasNext()) throw new NoSuchElementException("No results available");
+      return new OkHttpEvalResult(iterator.next());
     }
 
     @Override
     public void close() {
-      if ( iterator != null ) iterator.close();
+      if (iterator != null) iterator.close();
     }
   }
   public class OkHttpEvalResult implements EvalResult {
@@ -3603,8 +3645,8 @@ public class OkHttpServices implements RESTServices {
 
     @Override
     public EvalResult.Type getType() {
-      String contentType = content.getHeader(HEADER_CONTENT_TYPE);
-      String xPrimitive = content.getHeader(HEADER_X_PRIMITIVE);
+      String contentType = content.getHeader(HEADER_CONTENT_TYPE.toLowerCase());
+      String xPrimitive = content.getHeader(HEADER_X_PRIMITIVE.toLowerCase());
       if ( contentType != null ) {
         if ( MIMETYPE_APPLICATION_JSON.equals(contentType) ) {
           if ( "null-node()".equals(xPrimitive) ) {
@@ -4416,33 +4458,37 @@ public class OkHttpServices implements RESTServices {
     ResponseBody body = response.body();
     PartIterator partItr = body.contentLength() == 0 ? null : getEntity(body, PartIterator.class);
 
-    return initResults(result, reqlog, operation, entityType, partItr, response, (Closeable) response);
+    return initResults(result, reqlog, operation, entityType, partItr, response);
   }
 
   private <U extends OkHttpResultIterator> U initResults(
         U result, RequestLogger reqlog, String operation, String entityType,
-        PartIterator partItr, Response response, Closeable closeable) {
+        PartIterator partItr, Response response) {
     logRequest(reqlog, "%s for %s", operation, entityType);
 
-    if ( response == null ) return null;
+    if (response == null) return null;
 
-    result.init(reqlog, partItr, closeable);
+    result.init(reqlog, partItr, response);
+
+    return result;
+  }
+
+  private void initResults(BasicPage<?> page, Response response) {
+    if (response == null) return;
 
     Headers headers = response.headers();
     String startHdr = headers.get(HEADER_VND_MARKLOGIC_START);
     if (startHdr != null) {
-      result.setStart(Long.parseLong(startHdr));
+        page.setStart(Long.parseLong(startHdr));
     }
     String lengthHdr = headers.get(HEADER_VND_MARKLOGIC_PAGELENGTH);
     if (lengthHdr != null) {
-      result.setPageSize(Long.parseLong(lengthHdr));
+        page.setPageSize(Long.parseLong(lengthHdr));
     }
     String totalHdr = headers.get(HEADER_VND_MARKLOGIC_RESULT_ESTIMATE);
     if (totalHdr != null) {
-      result.setTotalSize(Long.parseLong(totalHdr));
+        page.setTotalSize(Long.parseLong(totalHdr));
     }
-
-    return result;
   }
 
   private boolean isStreaming(Object value) {
@@ -4512,6 +4558,8 @@ public class OkHttpServices implements RESTServices {
 
     public <R extends AbstractReadHandle> R getContent(R handle) {
       if (part == null) throw new IllegalStateException("Content already retrieved");
+// TODO: WHY INVOKED AT END OF ITERATOR?
+System.out.println("parsing next");
 
       HandleImplementation handleBase = HandleAccessor.as(handle);
 
@@ -4589,13 +4637,9 @@ public class OkHttpServices implements RESTServices {
     }
   }
 
-  public abstract class OkHttpResultIterator<T extends OkHttpResult> {
+  public abstract class OkHttpResultIterator<T extends OkHttpResult> implements Closeable {
     private RequestLogger reqlog;
-    private Iterator<BlockingIOAdapter.Part> partItr;
-    private long start = -1;
-    private long size = -1;
-    private long pageSize = -1;
-    private long totalSize = -1;
+    private PartIterator partItr;
     private Closeable closeable;
 
     public OkHttpResultIterator() {
@@ -4604,53 +4648,17 @@ public class OkHttpServices implements RESTServices {
 
     public void init(RequestLogger reqlog, PartIterator partItr, Closeable closeable) {
       this.reqlog = reqlog;
-      if (partItr == null) {
-        this.size = 0;
-      } else {
-        ConcurrentLinkedQueue<BlockingIOAdapter.Part> partQueue = new ConcurrentLinkedQueue<>();
-        partItr.forEachRemaining(partQueue::add);
-        partItr.close();
-        this.partItr = partQueue.iterator();
-        this.size = partQueue.size();
-        this.closeable = closeable;
-      }
+      this.partItr = partItr;
+      this.closeable = closeable;
     }
 
-    public long getStart() {
-      return start;
-    }
-    public OkHttpResultIterator<T> setStart(long start) {
-      this.start = start;
-      return this;
-    }
-    public long getSize() {
-      return size;
-    }
-    public OkHttpResultIterator<T> setSize(long size) {
-      this.size = size;
-      return this;
-    }
-    public long getPageSize() {
-      return pageSize;
-    }
-    public OkHttpResultIterator<T> setPageSize(long pageSize) {
-      this.pageSize = pageSize;
-      return this;
-    }
-    public long getTotalSize() {
-      return totalSize;
-    }
-    public OkHttpResultIterator<T> setTotalSize(long totalSize) {
-      this.totalSize = totalSize;
-      return this;
-    }
-
+    // @Override
     public boolean hasNext() {
       if (partItr == null) return false;
       boolean hasNext = partItr.hasNext();
       return hasNext;
     }
-
+    // @Override
     public T next() {
       if (partItr == null) return null;
       BlockingIOAdapter.Part part = partItr.next();
@@ -4660,14 +4668,16 @@ public class OkHttpServices implements RESTServices {
 
     protected abstract T makeNext(RequestLogger reqlog, BlockingIOAdapter.Part part);
 
+    // @Override
     public void remove() {
       if (partItr == null) return;
       partItr.remove();
       if (!partItr.hasNext()) close();
     }
-
+    @Override
     public void close() {
       if (partItr != null) {
+        partItr.close();
         partItr = null;
       }
       reqlog = null;
@@ -4684,7 +4694,7 @@ public class OkHttpServices implements RESTServices {
 
   public class OkHttpServiceResultIterator
     extends OkHttpResultIterator<OkHttpServiceResult>
-    implements RESTServiceResultIterator
+    implements RESTServiceResultIterator<OkHttpServiceResult>
   {
     public OkHttpServiceResultIterator() {
       super();
@@ -4717,9 +4727,8 @@ public class OkHttpServices implements RESTServices {
       this.content = content;
       this.metadata = metadata;
     }
-
     public OkHttpDocumentRecord(OkHttpResult content) {
-      this.content = content;
+      this(content,null);
     }
 
     @Override

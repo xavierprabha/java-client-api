@@ -28,5 +28,6 @@ public interface EvalResultIterator extends Iterable<EvalResult>, Iterator<EvalR
   boolean hasNext();
   @Override
   EvalResult next();
+  @Override
   void close();
 }

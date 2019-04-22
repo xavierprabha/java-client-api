@@ -192,7 +192,7 @@ public class EvalTest {
       // the same format we sent in (from javax.xml.datatype.XMLGregorianCalendar.toString())
       assertEquals("myDate looks wrong", "2014-09-01T00:00:00.000+02:00",
         results.next().getString());
-      assertEquals("myNull looks wrong", null, results.next().getString());
+      assertNull("myNull looks wrong", results.next().getString());
     }
 
   }
@@ -204,15 +204,15 @@ public class EvalTest {
       .addVariable("myNull", (String) null);
 
     try (EvalResultIterator results = call.eval()) {
-       assertEquals("myNull looks wrong", null, results.next().getString());
+       assertNull("myNull looks wrong", results.next().getString());
     }
 
     try (EvalResultIterator results = call.eval()) {
-      assertEquals("myNull looks wrong", null, results.next().get(new StringHandle()).get());
+      assertNull("myNull looks wrong", results.next().get(new StringHandle()).get());
     }
 
     try (EvalResultIterator results = call.eval()) {
-      assertEquals("myNull looks wrong", null, results.next().get(new BytesHandle()).get());
+      assertNull("myNull looks wrong", results.next().get(new BytesHandle()).get());
     }
 
     try (EvalResultIterator results = call.eval()) {

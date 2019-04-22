@@ -20,19 +20,26 @@ import com.marklogic.client.Page;
 
 public class BasicPage<T> implements Page<T> {
   private Iterator<T> iterator;
-  private long start;
+  private long start = 1;
   private Long size = null;
-  private long pageSize;
-  private long totalSize;
+  private long pageSize = 0;
+  private long totalSize = 0;
+  private Boolean hasContent;
 
-  protected BasicPage(Class<T> type) {
+  protected BasicPage() {
   }
-
+  public BasicPage(Iterator<T> iterator) {
+    this();
+    setIterator(iterator);
+  }
   public BasicPage(Iterator<T> iterator, long start, long pageSize, long totalSize) {
-    this.iterator = iterator;
-    this.start = start;
-    this.pageSize = pageSize;
-    this.totalSize = totalSize;
+    this(iterator);
+    init(start, pageSize, totalSize);
+  }
+  public void init(long start, long pageSize, long totalSize) {
+      setStart(start);
+      setPageSize(pageSize);
+      setTotalSize(totalSize);
   }
 
   @Override
@@ -40,18 +47,28 @@ public class BasicPage<T> implements Page<T> {
     return iterator;
   }
 
+  void setIterator(Iterator<T> iterator) {
+    this.iterator = iterator;
+    if (!hasContent()) {
+      this.hasContent = hasNext();
+    }
+  }
+
   @Override
   public boolean hasNext() {
-    return iterator.hasNext();
+    return (iterator == null) ? false : iterator.hasNext();
   }
 
   @Override
   public T next() {
-    return iterator.next();
+    return (iterator == null) ? null : iterator.next();
   }
 
   @Override
   public long getStart() {
+    if (start < 1) {
+        setStart(1);
+    }
     return start;
   }
 
@@ -62,6 +79,9 @@ public class BasicPage<T> implements Page<T> {
 
   @Override
   public long getPageSize() {
+    if (pageSize == -1) {
+      setPageSize(size());
+    }
     return pageSize;
   }
 
@@ -72,6 +92,9 @@ public class BasicPage<T> implements Page<T> {
 
   @Override
   public long getTotalSize() {
+    if (totalSize == -1) {
+      setTotalSize(size());
+    }
     return totalSize;
   }
 
@@ -81,7 +104,16 @@ public class BasicPage<T> implements Page<T> {
   }
 
   public BasicPage<T> setSize(long size) {
-    this.size = new Long(size);
+    this.size = Long.valueOf(size);
+    if (size > 0 && !hasContent()) {
+      hasContent = true;
+    }
+    if (pageSize < size) {
+      pageSize = size;
+    }
+    if (totalSize < size) {
+      totalSize = size;
+    }
     return this;
   }
 
@@ -105,7 +137,7 @@ public class BasicPage<T> implements Page<T> {
 
   @Override
   public boolean hasContent() {
-    return size() > 0;
+    return (hasContent != null) && hasContent;
   }
 
   @Override
@@ -120,11 +152,14 @@ public class BasicPage<T> implements Page<T> {
 
   @Override
   public long getPageNumber() {
-    if ( getPageSize() == 0 ) return 0;
-    double _start = (double) start;
-    double _pageSize = (double) getPageSize();
-    if ( _start % _pageSize == 0 ) return new Double(_start / _pageSize).longValue();
-    else return (long) Math.floor(_start / _pageSize) + 1;
+    if (getPageSize() == 0) {
+      return hasContent() ? 1 : 0;
+    }
+    double start    = getStart();
+    double pageSize = getPageSize();
+    return (start % pageSize == 0) ?
+            Double.valueOf(start / pageSize).longValue() :
+            (long) Math.floor(start / pageSize) + 1;
   }
 
   @Override

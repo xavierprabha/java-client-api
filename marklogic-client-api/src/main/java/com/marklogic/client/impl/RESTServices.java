@@ -390,12 +390,12 @@ public interface RESTServices {
   public <R extends AbstractReadHandle> R getThings(RequestLogger reqlog, String[] iris, R output)
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException;
 
-  public interface RESTServiceResultIterator extends ServiceResultIterator {
+  public interface RESTServiceResultIterator<T extends RESTServiceResult> extends ServiceResultIterator {
     @Override
-    public RESTServiceResult next();
+    public T next();
   }
   public interface RESTServiceResult extends ServiceResult {
-    public Map<String,List<String>> getHeaders();
+    Map<String,List<String>> getHeaders();
   }
 
   public String advanceLsqt(RequestLogger reqlog, String temporalCollection, long lag);
