@@ -15,6 +15,7 @@
  */
 package com.marklogic.client.extensions;
 
+import java.io.Closeable;
 import java.util.Iterator;
 
 import com.marklogic.client.io.Format;
@@ -259,10 +260,11 @@ public interface ResourceServices {
    * ServiceResultIterator provides an iterator over content responses
    * from the server.
    */
-  interface ServiceResultIterator extends Iterator<ServiceResult> {
+  interface ServiceResultIterator extends Iterator<ServiceResult>, Closeable {
     /**
      * Closes the iterator when no longer needed.
      */
+    @Override
     void close();
   }
 }

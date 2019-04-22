@@ -67,9 +67,10 @@ public interface Page<T> extends Iterable<T> {
    * If ({@link #getTotalSize()} - {@link #getStart()}) &gt; {@link #getPageSize()}
    * then size() == getPageSize().
    * @return the count of items in this page
+   * @deprecated this method defeats streaming and thus will be removed in a future release
    */
+  @Deprecated
   long size();
-
 
   /** The number of pages covering all possible items. Since this is calculated
    * based on {@link #getTotalSize()}, it is often an
@@ -85,7 +86,7 @@ public interface Page<T> extends Iterable<T> {
   long getTotalPages();
 
   /** Whether there are any items in this page.
-   * @return true if {@code size() > 0; }
+   * @return true if this pages has at least one item
    */
   boolean hasContent();
 

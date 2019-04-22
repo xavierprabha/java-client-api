@@ -28,14 +28,10 @@ public class PojoPageImpl<T> extends BasicPage<T> implements PojoPage<T>, Iterat
   private DocumentPage docPage;
 
   public PojoPageImpl(DocumentPage docPage, Class<T> entityClass) {
-    super(entityClass);
-    setStart( docPage.getStart() );
-    setSize( docPage.size() );
-    setPageSize( docPage.getPageSize() );
-    setTotalSize( docPage.getTotalSize() );
-
+    super();
     this.docPage = docPage;
     this.entityClass = entityClass;
+    init(docPage.getStart(), docPage.getPageSize(), docPage.getTotalSize());
   }
 
   @Override
@@ -44,8 +40,18 @@ public class PojoPageImpl<T> extends BasicPage<T> implements PojoPage<T>, Iterat
   }
 
   @Override
+  public boolean hasContent() {
+    return docPage.hasContent();
+  }
+
+  @Override
   public boolean hasNext() {
     return docPage.hasNext();
+  }
+
+  @Override
+  public long size() {
+    return docPage.size();
   }
 
   @Override
