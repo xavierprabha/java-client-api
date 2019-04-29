@@ -747,7 +747,7 @@ public class RowManagerImpl
           currentRow = results.next();
 
           Map<String,List<String>> headers = currentRow.getHeaders();
-          List<String> headerList = headers.get("Content-Disposition");
+          List<String> headerList = headers.get(RESTServices.HEADER_CONTENT_DISPOSITION.toLowerCase());
           if (headerList == null || headerList.isEmpty()) {
             break;
           }
@@ -756,7 +756,7 @@ public class RowManagerImpl
             break;
           }
 
-          headerList = headers.get("Content-ID");
+          headerList = headers.get(RESTServices.HEADER_CONTENT_ID.toLowerCase());
           if (headerList == null || headerList.isEmpty()) {
             break;
           }
