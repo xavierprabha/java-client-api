@@ -464,8 +464,8 @@ public class RowManagerTest {
         didARowFail = true;
         instruments = row.getContentAs("instruments", String.class);
       }
-      assertNotNull("null instrucments value in row record "+rowNum,    instruments);
-      assertTrue("unexpected instrucments value in row record "+rowNum, instruments.contains("trumpet"));
+      assertNotNull("null instruments value in row record "+rowNum,    instruments);
+      assertTrue("unexpected instruments value in row record "+rowNum, instruments.contains("trumpet"));
       rowNum++;
     }
     if ( didARowFail == false ) {

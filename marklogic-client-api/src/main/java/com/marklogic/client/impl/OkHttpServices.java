@@ -4558,8 +4558,6 @@ account for first part in search case
 
     public <R extends AbstractReadHandle> R getContent(R handle) {
       if (part == null) throw new IllegalStateException("Content already retrieved");
-// TODO: WHY INVOKED AT END OF ITERATOR?
-System.out.println("parsing next");
 
       HandleImplementation handleBase = HandleAccessor.as(handle);
 

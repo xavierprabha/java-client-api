@@ -1130,7 +1130,7 @@ for (String headerName: response.headers().names()) {
          BlockingIOAdapter.Part firstPart = partItr.peek();
          if (firstPart != null) {
             final Map<String, List<String>> firstHeaders = firstPart.getHeaders();
-            List<String> contentTypes = firstHeaders.get("content-type");
+            List<String> contentTypes = firstHeaders.get(RESTServices.HEADER_CONTENT_TYPE.toLowerCase());
             String contentType = (contentTypes != null && contentTypes.size() > 0 ) ?
                   contentTypes.get(0) : null;
             String mimetype =
