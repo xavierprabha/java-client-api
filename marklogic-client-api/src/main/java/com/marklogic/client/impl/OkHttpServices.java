@@ -980,20 +980,20 @@ public class OkHttpServices implements RESTServices {
       }
     }
 
-    OkHttpSearchRequest request =
-          generateSearchRequest(reqlog, querydef, MIMETYPE_MULTIPART_MIXED, transaction, responseTransform, params, null);
-    Response response = request.getResponse();
-    if ( response == null ) return null;
+      OkHttpSearchRequest request =
+        generateSearchRequest(reqlog, querydef, MIMETYPE_MULTIPART_MIXED, transaction, responseTransform, params, null);
+      Response response = request.getResponse();
+      if ( response == null ) return null;
     DefaultOkHttpResultIterator resultItr = new DefaultOkHttpResultIterator();
-    if ( searchHandle != null ) {
-      updateServerTimestamp(handleBase, response.headers());
-      ResponseBody body = response.body();
-      if ( body.contentLength() != 0 ) {
+      if ( searchHandle != null ) {
+        updateServerTimestamp(handleBase, response.headers());
+        ResponseBody body = response.body();
+        if ( body.contentLength() != 0 ) {
         PartIterator partItr = getEntity(body, PartIterator.class);
         if (partItr != null) {
           if (partItr.hasNext()) {
             BlockingIOAdapter.Part searchResponsePart = partItr.next();
-            handleBase.receiveContent(getEntity(searchResponsePart, handleBase.receiveAs()));
+              handleBase.receiveContent(getEntity(searchResponsePart, handleBase.receiveAs()));
           }
           resultItr = initResults(resultItr, reqlog, "read", "resource", partItr, response);
         }
@@ -1065,7 +1065,7 @@ public class OkHttpServices implements RESTServices {
         if (iterator != null) {
           iterator.close();
         }
-      }
+            }
     }
     private DocumentRecordIterator getIteratorImpl() {
       return (DocumentRecordIterator) super.iterator();
@@ -1096,7 +1096,7 @@ public class OkHttpServices implements RESTServices {
     public boolean hasNext() {
       if (iterator == null) return false;
       return iterator.hasNext();
-    }
+          }
     @Override
     public DocumentRecord next() {
       if (iterator == null) return null;
@@ -1124,8 +1124,8 @@ public class OkHttpServices implements RESTServices {
       if (iterator != null) {
         iterator.close();
         iterator = null;
+        }
       }
-    }
     ArrayList<DocumentRecord> toList() {
       ArrayList<DocumentRecord> list = new ArrayList<>();
       while (hasNext()) {
