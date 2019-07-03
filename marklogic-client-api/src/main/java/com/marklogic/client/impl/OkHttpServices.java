@@ -138,13 +138,11 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 @SuppressWarnings({ "unchecked", "rawtypes" })
 public class OkHttpServices implements RESTServices {
@@ -931,13 +929,6 @@ public class OkHttpServices implements RESTServices {
                                        Format format, RequestParameters extraParams, boolean withContent, String... uris)
     throws ResourceNotFoundException, ForbiddenUserException, FailedRequestException
     {
-/* TODO:
-other consumers are getIteratedResourceImpl() which is used only within getBulkDocumentsImpl()
-    and getIteratedResource() but that doesn't expose a page concept
-and postIteratedResourceImpl() which is used for OkHttpEvalResultIterator but that doesn't expose a page concept
-and postIteratedResource() but that doesn't expose a page concept
-account for first part in search case
- */
     String path = "documents";
     RequestParameters params = new RequestParameters();
     if ( extraParams != null ) params.putAll(extraParams);
@@ -950,7 +941,6 @@ account for first part in search case
       }
     }
     Response response = getIteratableResponse(path, transaction, params);
-// TODO: postIteratedResourceImpl()
     DefaultOkHttpResultIterator resultItr = getIteratedResourceImpl(new DefaultOkHttpResultIterator(), reqlog, response);
     boolean hasMetadata = categories != null && categories.size() > 0;
     OkHttpDocumentPage docPage = new OkHttpDocumentPage(resultItr, withContent, hasMetadata);
@@ -1017,7 +1007,6 @@ account for first part in search case
     return docPage;
   }
 
-// TODO: concurrent access?
   private class OkHttpDocumentPage extends BasicPage<DocumentRecord> implements DocumentPage, Iterator<DocumentRecord> {
     private boolean isBuffered = false;
     private long recordCount = 0;
@@ -1082,7 +1071,7 @@ account for first part in search case
       return (DocumentRecordIterator) super.iterator();
     }
 
-// TODO:  also finalize iterator over parts; also replace finalizers with java.lang.ref.Cleaner
+    // TODO:  also finalize iterator over parts; also replace finalizers with java.lang.ref.Cleaner
 
     @Override
     protected void finalize() throws Throwable {
@@ -2065,14 +2054,9 @@ account for first part in search case
     return null;
   }
 
- /*
-    @@@ move above to extractVersion()
-      private static void updateVersion(DocumentDescriptor descriptor, Headers headers) {
-        updateVersion(descriptor, extractVersion(headers.get(HEADER_ETAG)));
-      static private void updateVersion(DocumentDescriptor descriptor, Headers headers) {
-          updateVersion(descriptor, extractVersion(headers.get(HEADER_ETAG)));
-      }
-    */
+  static private void updateVersion(DocumentDescriptor descriptor, Headers headers) {
+    updateVersion(descriptor, extractVersion(headers.get(HEADER_ETAG)));
+  }
   static private void updateVersion(DocumentDescriptor descriptor, String header) {
       updateVersion(descriptor, extractVersion(header));
   }
