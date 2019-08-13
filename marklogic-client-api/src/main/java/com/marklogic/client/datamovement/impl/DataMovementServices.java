@@ -21,8 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.marklogic.client.DatabaseClient;
-import com.marklogic.client.dataservices.impl.CallBatcher;
-import com.marklogic.client.dataservices.impl.CallBatcherImpl;
+import com.marklogic.client.dataservices.BulkCaller;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcherImpl;
 import com.marklogic.client.impl.DatabaseClientImpl;
 import com.marklogic.client.io.JacksonHandle;
 import com.marklogic.client.datamovement.Batcher;
@@ -86,9 +87,13 @@ public class DataMovementServices {
     return startJobImpl((QueryBatcherImpl) batcher, JobType.QUERY_BATCHER, activeJobs)
         .withQueryBatcher((QueryBatcherImpl) batcher);
   }
-  public JobTicket startJob(CallBatcher batcher, ConcurrentHashMap<String, JobTicket> activeJobs) {
-    return startJobImpl((CallBatcherImpl) batcher, JobType.CALL_BATCHER, activeJobs)
-            .withCallBatcher((CallBatcherImpl) batcher);
+  public JobTicket startJob(DynamicCallBatcher batcher, ConcurrentHashMap<String, JobTicket> activeJobs) {
+    return startJobImpl((DynamicCallBatcherImpl) batcher, JobType.CALL_BATCHER, activeJobs)
+            .withCallBatcher((DynamicCallBatcherImpl) batcher);
+  }
+  public JobTicket startJob(BulkCaller batcher, ConcurrentHashMap<String, JobTicket> activeJobs) {
+    return startJobImpl((BatcherImpl) batcher, JobType.CALL_BATCHER, activeJobs)
+            .withCallBatcher(batcher);
   }
 
   private JobTicketImpl startJobImpl(

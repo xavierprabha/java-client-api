@@ -1,0 +1,21 @@
+{
+  "functionName": "forestParam",
+  "params": [ {
+      "name":     "param1",
+      "datatype": "unsignedLong"
+    }, {
+      "name":     "param2",
+      "datatype": "string",
+      "nullable": true
+  } ],
+  "return": {
+    "datatype":   "jsonDocument",
+    "$javaClass": "com.fasterxml.jackson.databind.JsonNode"
+  },
+  "$javaBulk": {
+    "strategy":           "generateArgs",
+    "threadFor":          "forest",
+    "defaultThreadCount": 2,
+    "forestParamName":    "param2"
+  }
+}

@@ -15,17 +15,17 @@
  */
 package com.marklogic.client.datamovement.impl;
 
-import com.marklogic.client.datamovement.Batcher;
 import com.marklogic.client.datamovement.JobTicket;
-import com.marklogic.client.datamovement.JobTicket.JobType;
-import com.marklogic.client.dataservices.impl.CallBatcherImpl;
+import com.marklogic.client.dataservices.BulkCaller;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcherImpl;
 
 public class JobTicketImpl implements JobTicket {
   private String jobId;
   private JobType jobType;
   private QueryBatcherImpl queryBatcher;
   private WriteBatcherImpl writeBatcher;
-  private CallBatcherImpl  callBatcher;
+  private DynamicCallBatcherImpl callBatcher;
+  private BulkCaller bulkCaller;
 
   public JobTicketImpl(String jobId, JobType jobType) {
     this.jobId = jobId;
@@ -57,7 +57,7 @@ public class JobTicketImpl implements JobTicket {
   }
 
 
-  public CallBatcherImpl  getCallBatcher() {
+  public DynamicCallBatcherImpl getCallBatcher() {
     return callBatcher;
   }
   public QueryBatcherImpl getQueryBatcher() {
@@ -67,7 +67,11 @@ public class JobTicketImpl implements JobTicket {
     return writeBatcher;
   }
 
-  public JobTicketImpl withCallBatcher(CallBatcherImpl batcher) {
+  public JobTicketImpl withCallBatcher(BulkCaller batcher) {
+    this.bulkCaller = batcher;
+    return this;
+  }
+  public JobTicketImpl withCallBatcher(DynamicCallBatcherImpl batcher) {
     this.callBatcher = batcher;
     return this;
   }

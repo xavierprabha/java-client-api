@@ -39,6 +39,7 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.transform.Source;
 
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -51,13 +52,12 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.marklogic.client.DatabaseClient;
 import com.marklogic.client.MarkLogicInternalException;
-import com.marklogic.client.dataservices.impl.CallBatcher;
-import com.marklogic.client.dataservices.impl.CallBatcher.CallArgsGenerator;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher.CallArgsGenerator;
 import com.marklogic.client.dataservices.impl.CallManager;
 import com.marklogic.client.dataservices.impl.CallManager.CallArgs;
-import com.marklogic.client.dataservices.impl.CallBatcher.CallEvent;
-import com.marklogic.client.dataservices.impl.CallBatcher.OneCallEvent;
-import com.marklogic.client.dataservices.impl.CallBatcherImpl;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher.CallEvent;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher.OneCallEvent;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcherImpl;
 import com.marklogic.client.document.JSONDocumentManager;
 import com.marklogic.client.io.marker.BufferableHandle;
 import com.marklogic.client.io.DocumentMetadataHandle;
@@ -75,7 +75,7 @@ public class CallbackGeneratorTest {
     private static CallManager.CallableEndpoint callableEndpoint;
     private static CallManager.OneCaller<Double> caller;
     
-    private static CallBatcher<Void, OneCallEvent<Double>> batcher;
+    private static DynamicCallBatcher<Void, OneCallEvent<Double>> batcher;
     
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
@@ -144,10 +144,10 @@ public class CallbackGeneratorTest {
         batcher = caller
                 .batcher()
                 .forArgsGenerator(result -> initializeTest.apply(result));
-        ((CallBatcherImpl) batcher).start(null);
+        ((DynamicCallBatcherImpl) batcher).start(null);
     }
     
-    private class InitializeTest implements CallArgsGenerator<CallBatcher.CallEvent> {
+    private class InitializeTest implements CallArgsGenerator<DynamicCallBatcher.CallEvent> {
 
         @Override
         public CallArgs apply(CallEvent t) {

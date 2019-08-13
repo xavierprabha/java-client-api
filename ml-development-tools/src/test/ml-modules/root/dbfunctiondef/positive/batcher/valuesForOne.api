@@ -1,0 +1,21 @@
+{
+  "functionName": "valuesForOne",
+  "params": [ {
+      "name":       "param1",
+      "datatype":   "dateTime",
+      "$javaClass": "java.time.LocalDateTime"
+    }, {
+      "name":     "param2",
+      "datatype": "jsonDocument",
+      "multiple": true
+  } ],
+  "return": {
+    "datatype":   "jsonDocument",
+    "$javaClass": "com.fasterxml.jackson.databind.JsonNode"
+  },
+  "$javaBulk": {
+    "strategy":         "batchValues",
+    "batchedParam":     "param2",
+    "defaultBatchSize": 15
+  }
+}

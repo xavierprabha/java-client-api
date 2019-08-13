@@ -23,6 +23,7 @@ import static org.hamcrest.core.StringStartsWith.startsWith;
 import java.time.LocalDate;
 import java.util.Arrays;
 
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -32,18 +33,17 @@ import org.junit.rules.ExpectedException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.marklogic.client.DatabaseClient;
-import com.marklogic.client.dataservices.impl.CallBatcher;
 import com.marklogic.client.dataservices.impl.CallManager;
 import com.marklogic.client.dataservices.impl.CallManager.CallArgs;
-import com.marklogic.client.dataservices.impl.CallBatcher.ManyCallEvent;
-import com.marklogic.client.dataservices.impl.CallBatcher.OneCallEvent;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher.ManyCallEvent;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher.OneCallEvent;
 import com.marklogic.client.document.JSONDocumentManager;
 import com.marklogic.client.io.DocumentMetadataHandle;
 import com.marklogic.client.query.DeleteQueryDefinition;
 import com.marklogic.client.query.QueryManager;
 import com.marklogic.client.test.Common;
 
-public class CallBatcherDefaultArgsTest {
+public class DynamicCallBatcherDefaultArgsTest {
 
     private final static String ENDPOINT_DIRECTORY = "/javaApi/test/callBatcherWithDefaultParam/";
 
@@ -101,7 +101,7 @@ public class CallBatcherDefaultArgsTest {
             Double expectedOutput = 0.0;
         }
         final Output output = new Output();
-        CallBatcher<CallArgs, OneCallEvent<Double>> batcher = caller
+        DynamicCallBatcher<CallArgs, OneCallEvent<Double>> batcher = caller
                 .batcher()
                 .forArgs()
                 .withDefaultArgs(caller.args().param("param1", 1.2))
@@ -138,7 +138,7 @@ public class CallBatcherDefaultArgsTest {
         }
 
         final Output output = new Output();
-        CallBatcher<CallArgs, OneCallEvent<JsonNode>> batcher = caller
+        DynamicCallBatcher<CallArgs, OneCallEvent<JsonNode>> batcher = caller
                 .batcher()
                 .forArgs()
                 .withDefaultArgs(caller.args().param("param1", new ObjectMapper().createObjectNode().put("param1", "value1")))
@@ -167,7 +167,7 @@ public class CallBatcherDefaultArgsTest {
         }
 
         final Output output = new Output();
-        CallBatcher<CallManager.CallArgs, ManyCallEvent<Float>> batcher = manyCaller.batcher().forArgs()
+        DynamicCallBatcher<CallArgs, ManyCallEvent<Float>> batcher = manyCaller.batcher().forArgs()
                 .withDefaultArgs(manyCaller.args().param("param1", values))
                 .onCallSuccess(event -> {
                     output.expectedOutput = event.getItems().toArray(Float[]::new);
@@ -195,7 +195,7 @@ public class CallBatcherDefaultArgsTest {
         }
 
         final Output output = new Output();
-        CallBatcher<CallManager.CallArgs,ManyCallEvent<JsonNode>> batcher = manyCaller.batcher().forArgs()
+        DynamicCallBatcher<CallArgs,ManyCallEvent<JsonNode>> batcher = manyCaller.batcher().forArgs()
                 .withDefaultArgs(manyCaller.args().param("param1", values))
                 .onCallSuccess(event -> {
                     JsonNode[] outputs = event.getItems().toArray(JsonNode[]::new);
@@ -231,7 +231,7 @@ public class CallBatcherDefaultArgsTest {
         final String[] expectedParamNames = new String[]{"param1", "param2"};
         Double[] inputValues = {1.2, 2.4};
 
-        CallBatcher<CallArgs, ManyCallEvent<Double>> batcher = caller
+        DynamicCallBatcher<CallArgs, ManyCallEvent<Double>> batcher = caller
                 .batcher()
                 .forArgs()
                 .withDefaultArgs(caller.args().param("param1", inputValues).param("param2", LocalDate.parse("2019-01-02")))
@@ -265,7 +265,7 @@ public class CallBatcherDefaultArgsTest {
         CallManager.ManyCaller<Double> caller = endpointUtil.makeManyCaller(callableEndpoint, Double.class);
 
         Double[] inputValues = {1.2, 2.4};
-        CallBatcher<CallArgs, ManyCallEvent<Double>> batcher = caller
+        DynamicCallBatcher<CallArgs, ManyCallEvent<Double>> batcher = caller
                 .batcher()
                 .forArgs()
                 .withDefaultArgs(caller.args().param("param1", inputValues));

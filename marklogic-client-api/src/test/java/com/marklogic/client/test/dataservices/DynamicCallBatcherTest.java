@@ -19,12 +19,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.marklogic.client.DatabaseClient;
-import com.marklogic.client.dataservices.impl.CallBatcher;
 import com.marklogic.client.dataservices.impl.CallManager;
 import com.marklogic.client.document.JSONDocumentManager;
 import com.marklogic.client.io.DocumentMetadataHandle;
@@ -32,7 +32,7 @@ import com.marklogic.client.query.DeleteQueryDefinition;
 import com.marklogic.client.query.QueryManager;
 import com.marklogic.client.test.Common;
 
-public class CallBatcherTest {
+public class DynamicCallBatcherTest {
 	
 	  private final static String ENDPOINT_DIRECTORY = "/javaApi/test/callBatcher/";
 
@@ -61,7 +61,7 @@ public class CallBatcherTest {
 		  CallManager.CallableEndpoint callableEndpoint = endpointUtil.makeCallableEndpoint("paramNoReturn");
 		  CallManager.NoneCaller noneCaller = callableEndpoint.returningNone();
 		  
-		  CallBatcher<CallManager.CallArgs,CallBatcher.CallEvent> batcher = noneCaller.batcher().forArgs();
+		  DynamicCallBatcher<CallManager.CallArgs, DynamicCallBatcher.CallEvent> batcher = noneCaller.batcher().forArgs();
 		  assertNotNull(batcher);
 		  String[] assignedParams = {""};
 		  batcher.onCallSuccess(event-> {
@@ -87,7 +87,7 @@ public class CallBatcherTest {
 		  CallManager.CallableEndpoint callableEndpoint = endpointUtil.makeCallableEndpoint("oneParam");
 		  CallManager.OneCaller<Double> oneCaller = callableEndpoint.returningOne(Double.class);
 		  
-		  CallBatcher<CallManager.CallArgs,CallBatcher.OneCallEvent<Double>> batcher = oneCaller.batcher().forArgs();
+		  DynamicCallBatcher<CallManager.CallArgs, DynamicCallBatcher.OneCallEvent<Double>> batcher = oneCaller.batcher().forArgs();
 		  assertNotNull(batcher);
 		  String[] assignedParams = {""};
 		  Double[] returnValue = {0.0};
@@ -116,7 +116,7 @@ public class CallBatcherTest {
 		  CallManager.CallableEndpoint callableEndpoint = endpointUtil.makeCallableEndpoint("float");
 		  CallManager.ManyCaller<Float> manyCaller = callableEndpoint.returningMany(Float.class);
 		  
-		  CallBatcher<CallManager.CallArgs,CallBatcher.ManyCallEvent<Float>> batcher = manyCaller.batcher().forArgs();
+		  DynamicCallBatcher<CallManager.CallArgs, DynamicCallBatcher.ManyCallEvent<Float>> batcher = manyCaller.batcher().forArgs();
 		  assertNotNull(batcher);
 		  Float[] values = new Float[]{1.8f, 2.4f};
 		  Float[] returnValues =  {0f,0f};

@@ -1,0 +1,17 @@
+{
+  "functionName": "generateForOne",
+  "params": [ {
+      "name":     "param1",
+      "datatype": "unsignedLong"
+    }, {
+      "name":     "param2",
+      "datatype": "string"
+  } ],
+  "return": {
+    "datatype":   "jsonDocument",
+    "$javaClass": "com.fasterxml.jackson.databind.JsonNode"
+  },
+  "$javaBulk": {
+    "strategy": "generateArgs"
+  }
+}

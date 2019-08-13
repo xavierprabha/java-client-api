@@ -38,31 +38,37 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends BatcherImpl implements CallBatcher<W,E> {
-    private static Logger logger = LoggerFactory.getLogger(CallBatcherImpl.class);
+public class DynamicCallBatcherImpl<W, E extends DynamicCallBatcher.CallEvent> extends BatcherImpl implements DynamicCallBatcher<W,E> {
+    private static Logger logger = LoggerFactory.getLogger(DynamicCallBatcherImpl.class);
 
     private CallManagerImpl.CallerImpl<E> caller;
     private Class<W> inputType;
     private boolean isMultiple = false;
     private CallManagerImpl.ParamFieldifier<W> fieldifier;
+
+// TODO: start push into abstract base and delete
     private JobTicket jobTicket;
     private CallingThreadPoolExecutor threadPool;
     private List<DatabaseClient> clients;
-    private List<CallSuccessListener<E>> successListeners = new ArrayList<>();
-    private List<CallFailureListener> failureListeners = new ArrayList<>();
-    private LinkedBlockingQueue<W> queue;
     private AtomicLong callCount = new AtomicLong();
     private Calendar jobStartTime;
     private Calendar jobEndTime;
+    private final AtomicBoolean initialized = new AtomicBoolean(false);
+    private final AtomicBoolean stopped = new AtomicBoolean(false);
+    private final AtomicBoolean started = new AtomicBoolean(false);
+// TODO: end push into abstract base and delete
+
+// TODO: start generify, push into abstract base, and delete
+    private List<CallSuccessListener<E>> successListeners = new ArrayList<>();
+    private List<CallFailureListener> failureListeners = new ArrayList<>();
+    private LinkedBlockingQueue<W> queue;
+// TODO: end generify, push into abstract base, and delete
+
     private Set<RESTServices.CallField> defaultArgs;
     private CallArgsGenerator<E> callArgsGenerator;
     private String forestParamName;
 
-    private final AtomicBoolean initialized = new AtomicBoolean(false);
-    private final AtomicBoolean stopped = new AtomicBoolean(false);
-    private final AtomicBoolean started = new AtomicBoolean(false);
-
-    CallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType) {
+    DynamicCallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType) {
         super(client.newDataMovementManager());
         if (caller == null) {
             throw new IllegalArgumentException("null caller");
@@ -74,8 +80,8 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         this.inputType = inputType;
     }
 
-    CallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType,
-                    String paramName, CallManagerImpl.ParamFieldifier<W> fieldifier) {
+    DynamicCallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType,
+                           String paramName, CallManagerImpl.ParamFieldifier<W> fieldifier) {
         this(client, caller, inputType);
         if (paramName == null) {
             throw new IllegalArgumentException("null parameter name");
@@ -90,14 +96,14 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         }
     }
     
-    CallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType, CallArgsGenerator<E> generator) {
+    DynamicCallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType, CallArgsGenerator<E> generator) {
         this(client, caller, inputType);
         if(generator == null)
             throw new IllegalArgumentException("Call Argument Generator cannot be null.");
         this.callArgsGenerator = generator;
     }
     
-    CallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType, CallArgsGenerator<E> generator, String forestName) {
+    DynamicCallBatcherImpl(DatabaseClient client, CallManagerImpl.CallerImpl<E> caller, Class<W> inputType, CallArgsGenerator<E> generator, String forestName) {
         this(client, caller, inputType, generator);
         if(forestName == null || forestName.length() == 0)
             throw new IllegalArgumentException("Forest name cannot be null or empty.");
@@ -110,7 +116,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         this.forestParamName = forestName;
     }
 
-    private CallBatcherImpl finishConstruction() {
+    private DynamicCallBatcherImpl finishConstruction() {
         withForestConfig(getDataMovementManager().readForestConfig());
         
         if(forestParamName!=null)
@@ -128,7 +134,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         }
     }
 
-    private void sendThrowableToListeners(Throwable t, String message, CallBatcherImpl.CallEvent event) {
+    private void sendThrowableToListeners(Throwable t, String message, DynamicCallBatcherImpl.CallEvent event) {
 // TODO: other actions
         for (CallFailureListener listener : failureListeners) {
             listener.processFailure(event, t);
@@ -136,7 +142,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public CallBatcher onCallSuccess(CallSuccessListener listener) {
+    public DynamicCallBatcher onCallSuccess(CallSuccessListener listener) {
         if (listener == null) {
             throw new IllegalArgumentException("null success listener");
         }
@@ -145,7 +151,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public CallBatcher onCallFailure(CallFailureListener listener) {
+    public DynamicCallBatcher onCallFailure(CallFailureListener listener) {
         if (listener == null) {
             throw new IllegalArgumentException("null failure listener");
         }
@@ -154,7 +160,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public CallBatcher withBatchSize(int batchSize) {
+    public DynamicCallBatcher withBatchSize(int batchSize) {
         requireInitialized(false);
         if (queue == null) {
             if (batchSize != 1) {
@@ -170,7 +176,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public CallBatcher withForestConfig(ForestConfiguration forestConfig) {
+    public DynamicCallBatcher withForestConfig(ForestConfiguration forestConfig) {
         requireInitialized(false);
         super.withForestConfig(forestConfig);
         Forest[] forests = forests(forestConfig);
@@ -182,21 +188,21 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public CallBatcher withJobId(String jobId) {
+    public DynamicCallBatcher withJobId(String jobId) {
         requireInitialized(false);
         setJobId(jobId);
         return this;
     }
 
     @Override
-    public CallBatcher withJobName(String jobName) {
+    public DynamicCallBatcher withJobName(String jobName) {
         requireInitialized(false);
         super.withJobName(jobName);
         return this;
     }
 
     @Override
-    public CallBatcher withThreadCount(int threadCount) {
+    public DynamicCallBatcher withThreadCount(int threadCount) {
         requireInitialized(false);
         if(forestParamName != null)
             throw new MarkLogicInternalException("The number of threads will be based on the number of forests.");
@@ -205,7 +211,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public CallBatcherImpl<W, E> withDefaultArgs(CallArgs args) {
+    public DynamicCallBatcherImpl<W, E> withDefaultArgs(CallArgs args) {
         if (args == null) {
             this.defaultArgs = null;
             return this;
@@ -299,7 +305,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public CallBatcher add(W input) {
+    public DynamicCallBatcher add(W input) {
         requireNotStopped();
         // initialize implicitly if not initialized explicitly previously
         initialize();
@@ -536,16 +542,16 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
     }
 
     @Override
-    public void retry(CallBatcher.CallEvent event) {
+    public void retry(DynamicCallBatcher.CallEvent event) {
         retry(event, false);
     }
 
     @Override
-    public void retryWithFailureListeners(CallBatcher.CallEvent event) {
+    public void retryWithFailureListeners(DynamicCallBatcher.CallEvent event) {
         retry(event, true);
     }
 
-    private void retry(CallBatcher.CallEvent event, boolean callFailListeners) {
+    private void retry(DynamicCallBatcher.CallEvent event, boolean callFailListeners) {
         if (isStopped()) {
             logger.warn("Job is now stopped, aborting the retry");
             return;
@@ -562,7 +568,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         callTask.withFailureListeners(callFailListeners).run();
     }
 
-    static class BuilderImpl<E extends CallBatcher.CallEvent> implements CallBatcherBuilder<E> {
+    static class BuilderImpl<E extends DynamicCallBatcher.CallEvent> implements CallBatcherBuilder<E> {
         private CallManagerImpl.CallerImpl<E> caller;
         private DatabaseClient client;
 
@@ -572,7 +578,7 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         }
 
         @Override
-        public <W> CallBatcherImpl<W, E> forBatchedParam(String paramName, Class<W> paramType) {
+        public <W> DynamicCallBatcherImpl<W, E> forBatchedParam(String paramName, Class<W> paramType) {
             if (paramName == null || paramName.length() == 0) {
                 throw new IllegalArgumentException("null or empty name for batched parameter");
             }
@@ -592,32 +598,32 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
 
             CallManagerImpl.ParamFieldifier<W> fieldifier = fielder.fieldifierFor(paramName, paramType);
 
-            return new CallBatcherImpl(client, caller, paramType, paramName, fieldifier).finishConstruction();
+            return new DynamicCallBatcherImpl(client, caller, paramType, paramName, fieldifier).finishConstruction();
         }
 
         @Override
-        public CallBatcherImpl<CallManager.CallArgs, E> forArgs() {
-            return new CallBatcherImpl(client, caller, CallManager.CallArgs.class).finishConstruction();
+        public DynamicCallBatcherImpl<CallArgs, E> forArgs() {
+            return new DynamicCallBatcherImpl(client, caller, CallManager.CallArgs.class).finishConstruction();
         }
 
         @Override
-        public CallBatcher<Void, E> forArgsGenerator(CallArgsGenerator<E> generator) {
-            return new CallBatcherImpl(client, caller, Void.class, generator).finishConstruction();
+        public DynamicCallBatcher<Void, E> forArgsGenerator(CallArgsGenerator<E> generator) {
+            return new DynamicCallBatcherImpl(client, caller, Void.class, generator).finishConstruction();
         }
 
         @Override
-        public CallBatcher<Void, E> forArgsGenerator(CallArgsGenerator<E> generator, String forestName) {
-            return new CallBatcherImpl(client, caller, Void.class, generator, forestName).finishConstruction();
+        public DynamicCallBatcher<Void, E> forArgsGenerator(CallArgsGenerator<E> generator, String forestName) {
+            return new DynamicCallBatcherImpl(client, caller, Void.class, generator, forestName).finishConstruction();
         }
     }
 
-    static class CallingThreadPoolExecutor<W, E extends CallBatcher.CallEvent> extends ThreadPoolExecutor {
-        private CallBatcherImpl<W, E> batcher;
+    static class CallingThreadPoolExecutor<W, E extends DynamicCallBatcher.CallEvent> extends ThreadPoolExecutor {
+        private DynamicCallBatcherImpl<W, E> batcher;
         private Set<CallTask<W, E>> queuedAndExecutingTasks;
         private CountDownLatch idleLatch;
 
 // TODO review including whether CallerRunsPolicy requires a derivation and whether retry or shutdown affects queue
-        CallingThreadPoolExecutor(CallBatcherImpl<W, E> batcher, int threadCount) {
+        CallingThreadPoolExecutor(DynamicCallBatcherImpl<W, E> batcher, int threadCount) {
             super(threadCount, threadCount, 1, TimeUnit.MINUTES,
                     new LinkedBlockingQueue<Runnable>(threadCount * 15),
                     new ThreadPoolExecutor.CallerRunsPolicy()
@@ -691,9 +697,9 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         }
     }
 
-    static class CallTask<W, E extends CallBatcher.CallEvent> extends FutureTask<Boolean> {
+    static class CallTask<W, E extends DynamicCallBatcher.CallEvent> extends FutureTask<Boolean> {
         private CallMaker<W, E> callMaker;
-        CallTask(CallBatcherImpl<W, E> batcher, long callNumber, CallManagerImpl.CallArgsImpl args) {
+        CallTask(DynamicCallBatcherImpl<W, E> batcher, long callNumber, CallManagerImpl.CallArgsImpl args) {
             this(new CallMaker(batcher, callNumber, args));
         }
         CallTask(CallMaker<W, E> callMaker) {
@@ -706,14 +712,14 @@ public class CallBatcherImpl<W, E extends CallBatcher.CallEvent> extends Batcher
         }
     }
 
-    static class CallMaker<W, E extends CallBatcher.CallEvent> implements Callable<Boolean> {
+    static class CallMaker<W, E extends DynamicCallBatcher.CallEvent> implements Callable<Boolean> {
         private CallManagerImpl.CallArgsImpl args;
-        private CallBatcherImpl<W, E> batcher;
+        private DynamicCallBatcherImpl<W, E> batcher;
         private long callNumber;
         private Future<Boolean> future;
         private boolean fireFailureListeners = true;
 
-        CallMaker(CallBatcherImpl<W, E> batcher, long callNumber, CallManagerImpl.CallArgsImpl args) {
+        CallMaker(DynamicCallBatcherImpl<W, E> batcher, long callNumber, CallManagerImpl.CallArgsImpl args) {
             this.batcher = batcher;
             this.callNumber = callNumber;
             this.args = args;

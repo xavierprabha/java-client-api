@@ -24,7 +24,14 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import java.io.File
 
 class Generator {
-  enum class ValueCardinality { NONE, SINGLE, MULTIPLE }
+  enum class ValueCardinality {NONE, SINGLE, MULTIPLE}
+
+  enum class CallerStrategy   {
+    BULK, BATCHING, GENERATING;
+    fun label() : String {
+      return "${name.toLowerCase().capitalize()}Caller"
+    }
+  }
 
   fun getJavaConverterName(): Map<String,String> {
     return mapOf(
@@ -216,6 +223,12 @@ class Generator {
     }
     return mapping
   }
+  fun getSigDataType(mappedType: String, isMultiple: Boolean): String {
+    val sigType =
+      if (!isMultiple) mappedType
+      else             "Stream<"+mappedType+">"
+    return sigType
+  }
 
   // entry point for EndpointProxiesGenTask
   fun serviceBundleToJava(servDeclFilename: String, javaBaseDir: String) {
@@ -230,21 +243,52 @@ class Generator {
     val funcdefs    = getFuncdefs(mapper, endpointDirectory, servDeclFile, servdef, moduleFiles)
 
     val fullClassName = getFullClassName(servDeclFilename, servdef)
+    val packageName = fullClassName.substringBeforeLast(".")
+    val className   = fullClassName.substringAfterLast(".")
 
+    val fieldDecl   = mutableListOf<String>()
+    val fieldInit   = mutableListOf<String>()
     val funcDecl    = mutableListOf<String>()
     val funcDepend  = mutableSetOf<String>()
-    val funcSrc     = funcdefs.map{(root, funcdef) ->
-      generateFuncSrc(funcDecl, funcDepend, servdef, moduleFiles[root]!!.name, funcdef)
-    }.joinToString("\n")
-    val funcImports =
+    val factoryDecl = mutableListOf<String>()
+    val factorySrc  = mutableListOf<String>()
+    val bulkCallerDecl = mutableListOf<String>()
+    val bulkCallerImpl = mutableListOf<String>()
+    val funcSrc     = funcdefs.map{(root, funcdef) -> generateFuncSrc(
+      fieldDecl, fieldInit, funcDecl, funcDepend, factoryDecl, factorySrc, bulkCallerDecl, bulkCallerImpl,
+      className, servdef, moduleFiles[root]!!.name, funcdef
+    )}.joinToString("\n")
+    val fieldDecls   =
+        if (fieldDecl.isEmpty()) ""
+        else fieldDecl.joinToString("")
+    val fieldInits   =
+        if (fieldInit.isEmpty()) ""
+        else fieldInit.joinToString("")
+    val funcImports  =
         if (funcDepend.isEmpty()) ""
         else "import "+funcDepend.joinToString(";\nimport ")+";\n"
-    val funcDecls   =
+    val funcDecls    =
         if (funcDecl.isEmpty()) ""
         else funcDecl.joinToString("")
+    val factoryDecls =
+        if (factoryDecl.isEmpty()) ""
+        else factoryDecl.joinToString("")+"""
+"""
+    val factorySrcs  =
+        if (factorySrc.isEmpty()) ""
+        else """
+"""+factorySrc.joinToString("")+"""
+"""
+    val bulkCallerDecls =
+        if (bulkCallerDecl.isEmpty()) ""
+        else bulkCallerDecl.joinToString("")
+    val bulkCallerImpls =
+        if (bulkCallerImpl.isEmpty()) ""
+        else bulkCallerImpl.joinToString("")
 
     val classSrc = generateServClass(
-        servdef, endpointDirectory, fullClassName, funcImports, funcDecls, funcSrc
+        servdef, endpointDirectory, packageName, className, fieldDecls, fieldInits, funcImports,
+        funcDecls, funcSrc, factoryDecls, factorySrcs, bulkCallerDecls, bulkCallerImpls
     )
 
     writeClass(fullClassName, classSrc, javaBaseDir)
@@ -338,14 +382,26 @@ class Generator {
     classFile.writeText(classSrc)
   }
   fun generateServClass(
-      servdef: ObjectNode, endpointDirectory: String, fullClassName: String,
-      funcImports: String, funcDecls: String, funcSrc: String
+      servdef: ObjectNode, endpointDirectory: String, packageName: String, className: String,
+      fieldDecls: String, fieldInits: String, funcImports: String, funcDecls: String, funcSrc: String,
+      factoryDecls: String,  factorySrcs: String, bulkCallerDecls: String, bulkCallerImpls: String
   ): String {
-    val packageName = fullClassName.substringBeforeLast(".")
-    val className   = fullClassName.substringAfterLast(".")
     val requestDir  = endpointDirectory+if (endpointDirectory.endsWith("/")) {""} else {"/"}
 
     val hasSession  = servdef.get("hasSession")?.asBoolean() == true
+
+/* TODO:
+    ${callerLabel} instead of BulkCaller, BatchingCaller, and GeneratingCaller
+ */
+    val bulkCallerImports =
+        if (bulkCallerDecls.length == 0) ""
+        else """
+import com.marklogic.client.dataservices.BulkCaller;
+import com.marklogic.client.dataservices.BatchingCaller;
+import com.marklogic.client.dataservices.GeneratingCaller;
+import com.marklogic.client.dataservices.impl.StaticBulkCallerImpl;
+import com.marklogic.client.dataservices.impl.StaticBatchingCallerImpl;
+import com.marklogic.client.dataservices.impl.StaticGeneratingCallerImpl;"""
 
     val classDesc   = servdef.get("desc")?.asText() ?:
         "Provides a set of operations on the database server"
@@ -355,10 +411,12 @@ class Generator {
 // IMPORTANT: Do not edit. This file is generated.
 
 ${funcImports}
+import java.util.List;
+import java.util.ArrayList;
 
 import com.marklogic.client.DatabaseClient;
 import com.marklogic.client.io.marker.JSONWriteHandle;
-
+${bulkCallerImports}
 import com.marklogic.client.impl.BaseProxy;
 
 /**
@@ -395,10 +453,14 @@ public interface ${className} {
      */
     static ${className} on(DatabaseClient db, JSONWriteHandle serviceDeclaration) {
         final class ${className}Impl implements ${className} {
-            private BaseProxy baseProxy;
+            private DatabaseClient dbClient;
+            private BaseProxy      baseProxy;
+${fieldDecls}
 
             private ${className}Impl(DatabaseClient dbClient, JSONWriteHandle servDecl) {
-                baseProxy = new BaseProxy(dbClient, "${requestDir}", servDecl);
+                this.dbClient  = dbClient;
+                this.baseProxy = new BaseProxy("${requestDir}", servDecl);
+${fieldInits}
             }${
     if (!hasSession) ""
     else """
@@ -407,7 +469,7 @@ public interface ${className} {
               return baseProxy.newSessionState();
             }"""
     }
-${funcSrc}
+${funcSrc}${factorySrcs}${bulkCallerImpls}
         }
 
         return new ${className}Impl(db, serviceDeclaration);
@@ -422,19 +484,22 @@ ${funcSrc}
      */
     SessionState newSessionState();"""
     }
-${funcDecls}
+${funcDecls}${factoryDecls}${bulkCallerDecls}
 }
 """
     return classSrc
   }
   fun generateFuncSrc(
-      funcDecl: MutableList<String>, funcDepend: MutableSet<String>, servdef: ObjectNode,
-      moduleFilename: String, funcdef: ObjectNode
+      fieldDecl: MutableList<String>, fieldInit: MutableList<String>, funcDecl: MutableList<String>,
+      funcDepend: MutableSet<String>, factoryDecl: MutableList<String>, factorySrc: MutableList<String>,
+      bulkCallerDecl: MutableList<String>, bulkCallerImpl: MutableList<String>,
+      className: String, servdef: ObjectNode, moduleFilename: String, funcdef: ObjectNode
   ): String {
     val funcName = funcdef.get("functionName")?.asText()
     if (funcName === null || funcName.length == 0) {
       throw IllegalArgumentException("function without name")
     }
+
     val funcDesc = funcdef.get("desc")?.asText() ?:
       "Invokes the ${funcName} operation on the database server"
 
@@ -448,6 +513,13 @@ ${funcDecls}
     var documentCardinality = ValueCardinality.NONE
 
     var sessionParam : ObjectNode? = null
+
+    val paramsList =
+        if ((funcParams?.size() ?: 0) == 0) null
+        else funcParams.map{funcParam ->
+           val paramName = funcParam.get("name").asText()
+           """${paramName}"""
+           }.joinToString(", ")
 
     val payloadParams = mutableListOf<ObjectNode>()
     funcParams?.forEach{param ->
@@ -496,8 +568,6 @@ ${funcDecls}
         if (returnType === null || returnKind === null) null
         else getJavaDataType(returnType, returnMapping, returnKind, returnMultiple)
 
-    val endpointMethod = "POST"
-
     val paramsKind     =
         if (atomicCardinality !== ValueCardinality.NONE && documentCardinality !== ValueCardinality.NONE)
           "MULTIPLE_MIXED"
@@ -521,9 +591,7 @@ ${funcDecls}
       val paramKind     = funcParam.get("dataKind").asText()
       val isMultiple    = funcParam.get("multiple")?.asBoolean() == true
       val mappedType    = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
-      val sigType       =
-          if (!isMultiple) mappedType
-          else             "Stream<"+mappedType+">"
+      val sigType       = getSigDataType(mappedType, isMultiple)
       val paramDesc     = "@param ${paramName}\t" + (
           funcParam.get("desc")?.asText() ?: "provides input"
           )
@@ -554,9 +622,8 @@ ${funcDecls}
       funcDepend.add("java.util.stream.Stream")
     }
     val returnSig      =
-        if (returnType === null)  "void"
-        else if (!returnMultiple) returnMapped
-        else                      "Stream<"+returnMapped+">"
+        if (returnMapped === null) "void"
+        else getSigDataType(returnMapped, returnMultiple)
     val returnDesc     =
         if (funcReturn === null) ""
         else "@return\t" + (
@@ -569,26 +636,30 @@ ${funcDecls}
     val sessionNullable =
         if (sessionParam === null) null
         else (sessionParam as ObjectNode).get("nullable")?.asBoolean() == true
-    val sessionChained  =
+    val sessionFluent   =
         if (sessionParam === null) ""
-        else  """"${sessionName}", ${sessionName}, ${sessionNullable}"""
+        else  """
+                      .withSession("${sessionName}", ${sessionName}, ${sessionNullable})"""
 
-    val paramsChained = payloadParams.map{funcParam ->
-      val paramName    = funcParam.get("name").asText()
-      val paramType    = funcParam.get("datatype").asText()
-      val paramKind    = funcParam.get("dataKind").asText()
-      val paramMapping = funcParam.get("\$javaClass")?.asText()
-      val isMultiple   = funcParam.get("multiple")?.asBoolean() == true
-      val isNullable   = funcParam.get("nullable")?.asBoolean() == true
-      val mappedType   = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
-      """BaseProxy.${paramKind}Param("${paramName}", ${isNullable}, BaseProxy.${typeConverter(paramType)}.from${
-      if (mappedType.contains("."))
-        mappedType.substringAfterLast(".").capitalize()
-      else
-        mappedType.capitalize()
-      }(${paramName}))"""
-    }.joinToString(""",
-                    """)
+    val paramsChained =
+        if (payloadParams.isEmpty()) null
+        else payloadParams.map{funcParam ->
+          val paramName    = funcParam.get("name").asText()
+          val paramType    = funcParam.get("datatype").asText()
+          val paramKind    = funcParam.get("dataKind").asText()
+          val paramMapping = funcParam.get("\$javaClass")?.asText()
+          val isMultiple   = funcParam.get("multiple")?.asBoolean() == true
+          val isNullable   = funcParam.get("nullable")?.asBoolean() == true
+          val mappedType   = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
+          paramConverter(paramName, paramKind, paramType, mappedType, isNullable)
+        }
+    val paramsFluent =
+        if (paramsChained === null || paramsChained.isEmpty()) ""
+        else  """
+                      .withParams(
+                          ${paramsChained.joinToString(""",
+                          """)}
+                          )"""
 
     val returnConverter =
         if (returnType === null || returnMapped === null)
@@ -600,18 +671,51 @@ ${funcDecls}
           else
             returnMapped.capitalize()
           }(
-                """
+                    """
     val returnFormat  =
         if (returnType === null || returnKind != "document") "null"
         else typeFormat(returnType)
     val returnChained =
-        if (returnKind === null)         """.responseNone()"""
-        else if (returnMultiple == true) """.responseMultiple(${returnNullable}, ${returnFormat})
+        if (returnKind === null)         """
+                      .responseNone()"""
+        else if (returnMultiple == true) """
+                      .responseMultiple(${returnNullable}, ${returnFormat})
                 )"""
-        else                             """.responseSingle(${returnNullable}, ${returnFormat})
+        else                             """
+                      .responseSingle(${returnNullable}, ${returnFormat})
                 )"""
 
+    val fieldReturn    =
+        if (returnType === null) ""
+        else "return "
+
     val sigSource      = """${returnSig} ${funcName}(${sigParams ?: ""})"""
+    val sigImpl        =
+        if (sigParams === null || sigParams.length == 0)
+          """${returnSig} ${funcName}(BaseProxy.DBFunctionRequest request)"""
+        else
+          """${returnSig} ${funcName}(BaseProxy.DBFunctionRequest request, ${sigParams})"""
+
+    val implParams =
+        if (paramsList === null) ""
+        else ", $paramsList"
+
+    val fieldName      = """req_${funcName}"""
+
+    fieldDecl.add("""
+            private BaseProxy.DBFunctionRequest ${fieldName};""")
+
+    fieldInit.add("""
+                this.${fieldName} = this.baseProxy.request(
+                    "${moduleFilename}", BaseProxy.ParameterValuesKind.${paramsKind});""")
+
+    val bulkCallerdef = funcdef.get("${'$'}javaBulk")
+    if (bulkCallerdef !== null) {
+      generateBulkCaller(
+          factoryDecl, factorySrc, bulkCallerDecl, bulkCallerImpl, className,
+          funcName, payloadParams, returnSig, fieldName, bulkCallerdef
+          )
+    }
 
     val declSource     = """
   /**
@@ -628,17 +732,795 @@ ${funcDecls}
     val defSource      = """
             @Override
             public ${sigSource} {
-              ${returnConverter
-              }baseProxy
-                .request("${moduleFilename}", BaseProxy.ParameterValuesKind.${paramsKind})
-                .withSession(${sessionChained})
-                .withParams(
-                    ${paramsChained})
-                .withMethod("${endpointMethod}")
-                ${returnChained};
+                ${fieldReturn}${funcName}(
+                    this.${fieldName}.on(this.dbClient)${implParams}
+                    );
             }
-"""
+            private ${sigImpl} {
+                ${returnConverter
+                }request${sessionFluent}${paramsFluent}${returnChained};
+            }"""
     return defSource
+  }
+  fun generateBulkCaller(
+          factoryDecl: MutableList<String>, factorySrc: MutableList<String>, bulkCallerDecl: MutableList<String>, bulkCallerImpl: MutableList<String>,
+          className: String, funcName: String, payloadParams: MutableList<ObjectNode>, returnSig: String, fieldName: String, bulkCallerdef: JsonNode
+    ) {
+    val strategyName = bulkCallerdef.apply{
+        if (!has("strategy"))
+          throw IllegalArgumentException("$funcName function must specify strategy")
+      }.get("strategy").asText()
+    val callerStrategy =
+      when(strategyName) {
+        "queueArgs"    -> CallerStrategy.BULK
+        "batchValues"  -> CallerStrategy.BATCHING
+        "generateArgs" -> CallerStrategy.GENERATING
+        else -> throw IllegalArgumentException(
+                "$funcName function specifies ${'$'}javaBulk with unknown $strategyName strategy"
+        )
+      }
+    val callerLabel = callerStrategy.label()
+
+    // parameters for batchValues strategy
+    val batchParamName = bulkCallerdef.run{
+      val paramName = get("batchedParam")
+      when (callerStrategy) {
+        CallerStrategy.BATCHING -> {
+          if (paramName === null)
+            throw IllegalArgumentException(
+                    "$funcName function must specify batchedParam for $strategyName strategy"
+            )
+          val paramNameValue = paramName.asText()
+          if (paramNameValue.isEmpty())
+            throw IllegalArgumentException(
+                    "$funcName function specifies empty batchedParam for $strategyName strategy"
+            )
+          paramNameValue
+        }
+        else -> {
+          if (paramName !== null)
+            throw IllegalArgumentException(
+                    "$funcName function cannot specify batchedParam for $strategyName strategy"
+            )
+          null
+        }
+      }
+    }
+    val batchRootName  = batchParamName?.capitalize()
+    val batchParam     = batchParamName?.run{
+      val paramDef = payloadParams.filter{funcParam ->
+        funcParam.get("name").asText() == batchParamName
+      }.firstOrNull()
+      if (paramDef === null)
+        throw IllegalArgumentException(
+                "$funcName function does not take $batchParamName parameter for batching"
+        )
+      paramDef
+    }
+    val batchSize = bulkCallerdef.get("defaultBatchSize")?.run{
+      when (callerStrategy) {
+        CallerStrategy.BATCHING ->
+          if (!canConvertToInt())
+            throw IllegalArgumentException(
+                    "$funcName function specifies defaultBatchSize that is not an integer: ${asText()}"
+            )
+          else asInt().apply{
+              if (this < 1)
+                throw IllegalArgumentException(
+                        "$funcName function specifies defaultBatchSize of less than one: $this"
+                )
+            }
+        else ->
+          throw IllegalArgumentException(
+                  "$funcName function cannot specify defaultBatchSize for $strategyName strategy"
+          )
+      }
+    }
+    val batchParamType = batchParam?.run{
+        val paramKind    = get("dataKind").asText()
+        val paramType    = get("datatype").asText()
+        val paramMapping = get("\$javaClass")?.asText()
+        val isMultiple   = get("multiple")?.asBoolean() == true
+        getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
+      }
+
+    val threadUnit = bulkCallerdef.get("threadFor")?.textValue()?.toUpperCase()?.run{
+      when (this) {
+        "CLUSTER", "FOREST" -> this
+        else -> throw IllegalArgumentException(
+                "$funcName function specifies unsupported thread unit: $this"
+        )
+      }
+    }
+    val defaultThreadCount = bulkCallerdef.get("defaultThreadCount")?.run{
+      if (!canConvertToInt())
+        throw IllegalArgumentException(
+                "$funcName function specifies defaultThreadCount that is not an integer: ${asText()}"
+        )
+      else
+        asInt().apply{
+          if (this < 1)
+            throw IllegalArgumentException(
+                    "$funcName function specifies defaultThreadCount of less than one: $this"
+            )
+        }
+    }
+    // parameters for per forest threading
+    val forestParamName = bulkCallerdef.get("forestParamName")?.asText()?.apply{
+      if (threadUnit != "FOREST")
+        throw IllegalArgumentException(
+                "$funcName function cannot specify forest parameter when threading for cluster"
+        )
+      val forestParamDef = payloadParams.filter{funcParam ->
+        funcParam.get("name").asText() == this
+      }.firstOrNull()
+      if (forestParamDef === null)
+        throw IllegalArgumentException(
+                "$funcName function does not take $this parameter for forest"
+        )
+      val paramType = forestParamDef.get("datatype").asText()
+      if (paramType != "string")
+        throw IllegalArgumentException(
+                "$funcName function must specify string data type for $this forest parameter instead of: $paramType"
+        )
+      val isMultiple = forestParamDef.get("multiple")?.asBoolean() == true
+      if (isMultiple)
+        throw IllegalArgumentException(
+                "$funcName function cannot specify that $this forest parameter takes multiple values"
+        )
+    }
+
+    val bulkCallerRoot = funcName.capitalize()
+
+    val bulkCallerName = "${bulkCallerRoot}${callerLabel}"
+
+    val argsImplName       = "ArgsFor$bulkCallerRoot"
+    val resultImplName     = "ResultFor$bulkCallerRoot"
+    val defaultImplName    = "DefaultArgsFor$bulkCallerRoot"
+    val bulkCallerImplName = "CallerFor$bulkCallerRoot"
+    val builderImplName    = "CallerBuilderFor$bulkCallerRoot"
+
+    val bulkCallerDeclExtends =
+      when (callerStrategy) {
+        CallerStrategy.BULK      -> callerLabel
+        CallerStrategy.BATCHING  -> "${callerLabel}<${batchParamType}>"
+        CallerStrategy.GENERATING -> callerLabel
+      }
+    val bulkCallerImplExtends =
+      when (callerStrategy) {
+        CallerStrategy.BULK      -> "Static${callerLabel}Impl<${argsImplName}, ${resultImplName}>"
+        CallerStrategy.BATCHING  -> "Static${callerLabel}Impl<${batchParamType}, ${argsImplName}, ${resultImplName}>"
+        CallerStrategy.GENERATING -> "Static${callerLabel}Impl<${argsImplName}, ${resultImplName}>"
+      }
+
+      factoryDecl.add("""
+    ${bulkCallerName}.Builder new${bulkCallerName}();""")
+
+    val isVoid = (returnSig == "void")
+
+    val paramNames = extractParamNames(payloadParams)
+
+    val defaultableParams =
+      if (paramNames === null) null
+      else payloadParams.filter{funcParam ->
+        val paramName = funcParam.get("name").asText()
+        val paramKind = funcParam.get("dataKind").asText()
+        if (batchParamName == paramName) false
+        else when (paramKind) {
+          "atomic"   -> true
+          "document" -> {
+            val paramType    = funcParam.get("datatype").asText()
+            val paramMapping = funcParam.get("\$javaClass")?.asText()
+            val isMultiple   = funcParam.get("multiple")?.asBoolean() == true
+            val mappedType   = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
+            (mappedType == "java.lang.String")
+            }
+          else -> false
+         }
+       }
+    val defaultableNames = extractParamNames(defaultableParams)
+
+    val argsList        = makeParamList(paramNames)
+    val argsSig         = makeParamSig(payloadParams)
+    val argsConstructor = makeParamConstructor(argsImplName, argsSig, paramNames)
+    val argsFieldImpls  = makeParamFields(payloadParams)
+    val argsMethodImpls = makeParamMethods(true, payloadParams)
+    val argsMethodDecls =
+      if (payloadParams.isEmpty()) ""
+      else payloadParams.map{funcParam ->
+        val paramName    = funcParam.get("name").asText()
+        val paramType    = funcParam.get("datatype").asText()
+        val paramKind    = funcParam.get("dataKind").asText()
+        val paramMapping = funcParam.get("\$javaClass")?.asText()
+        val isMultiple   = funcParam.get("multiple")?.asBoolean() == true
+        val mappedType   = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
+        val sigType      = getSigDataType(mappedType, isMultiple)
+                """            ${sigType} get${paramName.capitalize()}();"""
+        }.joinToString("""
+""")
+    val argsPositional  =
+      if (paramNames === null) ""
+      else paramNames.map{ paramName ->
+                """,
+                            args.get${paramName.capitalize()}()"""
+        }.joinToString("")
+
+    val defaultList        = makeParamList(defaultableNames)
+    val defaultSig         = makeParamSig(defaultableParams)
+    val defaultFieldImpls  = makeParamFields(defaultableParams)
+    val defaultConstructor = makeParamConstructor(defaultImplName, defaultSig, defaultableNames)
+    val defaultMethodImpls = makeParamMethods(false, defaultableParams)
+    val defaultSetters     =
+      if (defaultableParams === null) ""
+      else defaultableParams.map{funcParam ->
+        val accessor = funcParam.get("name").asText().capitalize()
+                """
+                        if (argsImpl.get${accessor}() == null)
+                            argsImpl.set${accessor}(defaultArgs.get${accessor}());"""
+        }.joinToString("")
+
+    val batchConstructor =
+      if (batchParamName === null || paramNames == null) null
+      else paramNames.map{paramName ->
+        if (paramName == batchParamName)
+                  "values"
+        else if (defaultableNames !== null && defaultableNames.contains(paramName))
+                  "defaultArgs.get${paramName.capitalize()}()"
+        else
+                  "null"
+        }.joinToString(""",
+                        """)
+    val emptyConstructor =
+      if (callerStrategy != CallerStrategy.GENERATING|| paramNames == null) null
+      else paramNames.map{paramName ->
+        if (defaultableNames !== null && defaultableNames.contains(paramName))
+                  "defaultArgs.get${paramName.capitalize()}()"
+        else
+                  "null"
+        }.joinToString(""",
+                        """)
+
+    val successArgsDecl =
+      if (isVoid) "$bulkCallerName caller, Args sent"
+      else        "$bulkCallerName caller, Args sent, $returnSig received"
+
+    val resultImplSrc =
+      if (isVoid) ""
+      else        """
+                private ${returnSig} output;
+                private ${resultImplName}(${returnSig} output) {
+                    this.output = output;
+                }
+                private ${returnSig} getOutput() {
+                    return this.output;
+                }
+"""
+    val callImplSrc =
+      if (isVoid) """
+                    serviceImpl.${funcName}(
+                        serviceImpl.${fieldName}.on(db)${argsPositional}
+                        );
+                    return new ${resultImplName}();
+"""
+      else        """
+                    return new ${resultImplName}(
+                        serviceImpl.${funcName}(
+                            serviceImpl.${fieldName}.on(db)${argsPositional}
+                            )
+                        );
+"""
+    val successImplSrc =
+      if (isVoid) """
+                    ${argsImplName} nextCallArgs = null;
+                    for (${bulkCallerName}.SuccessListener listener: successListeners) {
+                        ${bulkCallerName}.Args next = listener.accept(this, args);
+                        if (next != null) {
+                            if (!(next instanceof ${argsImplName}))
+                                throw new IllegalArgumentException(
+                                    "success listener can only return arguments created with newArgs()"
+                                );
+                            nextCallArgs = (${argsImplName}) next;
+                        }
+                    }
+                    return nextCallArgs;"""
+      else        """
+                    ${returnSig} output = result.getOutput();
+                    ${argsImplName} nextCallArgs = null;
+                    for (${bulkCallerName}.SuccessListener listener: successListeners) {
+                        ${bulkCallerName}.Args next = listener.accept(this, args, output);
+                        if (next != null) {
+                            if (!(next instanceof ${argsImplName}))
+                                throw new IllegalArgumentException(
+                                    "success listener can only return arguments created with newArgs()"
+                                );
+                            nextCallArgs = (${argsImplName}) next;
+                        }
+                    }
+                    return nextCallArgs;"""
+
+    val factoryImpl = """
+            @Override
+            public ${bulkCallerName}.Builder new${bulkCallerName}() {
+                return new ${builderImplName}(this);
+            }"""
+    factorySrc.add(factoryImpl);
+
+    val adderDecl =
+      when (callerStrategy) {
+        CallerStrategy.BULK      ->
+                  """
+        void add(${argsSig});
+        void add(Args input);
+        void addAll(Stream<Args> inputs);"""
+        CallerStrategy.BATCHING  ->
+                  """
+        void add${batchRootName}(${batchParamType} value);
+        void addAll${batchRootName}(Stream<${batchParamType}> values);"""
+        CallerStrategy.GENERATING -> ""
+      }
+    val adderImpl =
+      when (callerStrategy) {
+        CallerStrategy.BULK     ->
+                  """
+                @Override
+                public void add(${argsSig}) {
+                    add(newArgs(${argsList}));
+                }
+                @Override
+                public void add(Args input) {
+                    if (input == null) return;
+                    if (!(input instanceof ${argsImplName}))
+                        throw new IllegalArgumentException("Must use internal class for argument input");
+                    ${argsImplName} argsImpl = (${argsImplName}) input;
+                    if (defaultArgs != null) {${defaultSetters}
+                    }
+                    submitArgs(argsImpl);
+                }
+                @Override
+                public void addAll(Stream<Args> inputs) {
+                    if (inputs != null)
+                        inputs.forEach(this::add);
+                }"""
+        CallerStrategy.BATCHING ->
+                  """
+                @Override
+                public void add${batchRootName}(${batchParamType} value) {
+                    super.addValue(value);
+                }
+                @Override
+                public void addAll${batchRootName}(Stream<${batchParamType}> values) {
+                    super.addAllValues(values);
+                }
+                @Override
+                protected void submitArgsForBatch(Stream<${batchParamType}> values) {
+                    add(newArgs(
+                        ${batchConstructor}
+                        ));
+                }
+                private void add(${argsImplName} argsImpl) {
+                    if (argsImpl == null) return;
+                    if (defaultArgs != null) {${defaultSetters}
+                    }
+                    submitArgs(argsImpl);
+                }"""
+        CallerStrategy.GENERATING -> """
+                protected ${argsImplName} newArgs() {
+                    return new ${argsImplName}(
+                        ${emptyConstructor}
+                        );
+                }"""
+      }
+
+    val threadInit =
+      if (threadUnit === null) ""
+      else """
+                    super.setThreadUnit(StaticBulkCallerImpl.ThreadUnit.$threadUnit);"""
+    val defaultThreadInit =
+      if (defaultThreadCount === null) ""
+      else """
+                    super.setThreadCount($defaultThreadCount);"""
+    val prepareArgsInit =
+      if (forestParamName === null) """
+                @Override
+                protected void prepare(Long taskNumber, ${argsImplName} args) {
+                }"""
+      else """
+                @Override
+                protected void prepare(Long taskNumber, ${argsImplName} args) {
+                    args.set${forestParamName.capitalize()}(super.getForestName(taskNumber));
+                }"""
+
+    val threadCountDecl =
+      if (threadUnit === "CLUSTER") """
+            Builder threadCount(int count);"""
+      else """
+            Builder threadCountPerForest(int count);"""
+    val threadCountImpl =
+      if (threadUnit === "CLUSTER") """
+                public ${builderImplName} threadCount(int count) {
+                    super.setThreadCount(count);
+                    return this;
+                }"""
+      else """
+                public ${builderImplName} threadCountPerForest(int count) {
+                    super.setThreadCount(count);
+                    return this;
+                }"""
+
+    val builderMethodDecl =
+      when (callerStrategy) {
+        CallerStrategy.BULK      -> ""
+        CallerStrategy.BATCHING  -> """
+            Builder batchSize(int batchSize);"""
+        CallerStrategy.GENERATING -> ""
+      }
+
+    val builderConstructorImpl =
+      when (callerStrategy) {
+        CallerStrategy.BULK      -> ""
+        CallerStrategy.BATCHING  ->
+          if (batchSize === null) ""
+          else """
+                    super.setBatchSize(${batchSize});"""
+        CallerStrategy.GENERATING -> ""
+      }
+
+    val builderMethodImpl =
+      when (callerStrategy) {
+        CallerStrategy.BULK      -> ""
+        CallerStrategy.BATCHING  -> """
+                @Override
+                public ${builderImplName} batchSize(int batchSize){
+                    super.setBatchSize(batchSize);
+                    return this;
+                }"""
+        CallerStrategy.GENERATING -> ""
+       }
+
+    val bulkCallerDeclSource = """
+    interface ${bulkCallerName} extends ${bulkCallerDeclExtends} {${adderDecl}
+
+        Args newArgs(${argsSig});
+
+        interface Builder extends ${callerLabel}.BuilderBase {
+            ${bulkCallerName} build();
+            Builder defaultArgs(${defaultSig});
+            Builder beforeCall(BeforeCallListener listener);
+            Builder beforeCall(List<BeforeCallListener> listeners);
+            Builder onSuccess(SuccessListener listener);
+            Builder onSuccess(List<SuccessListener> listeners);
+            Builder onFailure(FailureListener listener);
+            Builder onFailure(List<FailureListener> listeners);${threadCountDecl}${builderMethodDecl}
+        }
+        interface Args extends ${callerLabel}.ArgsBase {
+${argsMethodDecls}
+        }
+        @FunctionalInterface
+        public interface BeforeCallListener {
+            Args prepare(${bulkCallerName} caller, Args next);
+        }
+        @FunctionalInterface
+        public interface SuccessListener {
+            Args accept(${successArgsDecl});
+        }
+        @FunctionalInterface
+        public interface FailureListener {
+            Args recover(${bulkCallerName} caller, Args sent, Throwable error);
+        }
+    }"""
+      bulkCallerDecl.add(bulkCallerDeclSource)
+
+    val bulkCallerImplSource = """
+            final class ${argsImplName}
+            extends Static${callerLabel}Impl.StaticArgsImpl
+            implements ${bulkCallerName}.Args {
+                ${argsFieldImpls}${argsConstructor}${argsMethodImpls}
+            }
+            final class ${resultImplName}
+            extends Static${callerLabel}Impl.StaticResultImpl {${resultImplSrc}
+            }
+            final class ${defaultImplName} {
+                ${defaultFieldImpls}${defaultConstructor}${defaultMethodImpls}
+            }
+            final class ${bulkCallerImplName}
+            extends ${bulkCallerImplExtends}
+            implements ${bulkCallerName} {
+                private ${className}Impl serviceImpl;
+                private ${defaultImplName} defaultArgs;
+                private List<${bulkCallerName}.BeforeCallListener> beforeCallListeners;
+                private List<${bulkCallerName}.SuccessListener>    successListeners;
+                private List<${bulkCallerName}.FailureListener>    failureListeners;
+                private ${bulkCallerImplName}(${className}Impl serviceImpl, ${builderImplName} builder) {
+                    super(serviceImpl.dbClient, builder);
+                    this.serviceImpl         = serviceImpl;
+                    this.defaultArgs         = builder.defaultArgs;
+                    this.beforeCallListeners = builder.beforeCallListeners;
+                    this.successListeners    = builder.successListeners;
+                    this.failureListeners    = builder.failureListeners;
+                }${adderImpl}${prepareArgsInit}
+                @Override
+                public ${argsImplName} newArgs(${argsSig}) {
+                    return new ${argsImplName}(${argsList});
+                }
+                @Override
+                final protected ${resultImplName} call(DatabaseClient client, ${argsImplName} args) {
+                    if (beforeCallListeners != null && !beforeCallListeners.isEmpty()) {
+                        for (${bulkCallerName}.BeforeCallListener listener: beforeCallListeners) {
+                            ${bulkCallerName}.Args prepared = listener.prepare(this, args);
+                            if (prepared != null) {
+                                if (!(prepared instanceof ${argsImplName}))
+                                    throw new IllegalArgumentException(
+                                            "before call listener can only return arguments created with newArgs()"
+                                    );
+                                args = (${argsImplName}) prepared;
+                            }
+                        }
+                    }${callImplSrc}
+                }
+                @Override
+                final protected ${argsImplName} notifySuccess(${argsImplName} args, ${resultImplName} result) {
+                    if (successListeners == null || successListeners.size() == 0) return null;
+                    ${successImplSrc}
+                }
+                @Override
+                final protected ${argsImplName} notifyFailure(${argsImplName} args, Throwable error) {
+                    if (failureListeners == null || failureListeners.size() == 0) return null;
+                    ${argsImplName} retryArgs = null;
+                    for (${bulkCallerName}.FailureListener listener : failureListeners) {
+                        ${bulkCallerName}.Args retry = listener.recover(this, args, error);
+                        if (retry != null) {
+                            if (!(retry instanceof ${argsImplName}))
+                                throw new IllegalArgumentException(
+                                    "failure listener can only return arguments created with newArgs()"
+                                );
+                            retryArgs = (${argsImplName}) retry;
+                        }
+                    }
+                    return retryArgs;
+                }
+// TODO: other methods
+            }
+            final class ${builderImplName}
+            extends Static${callerLabel}Impl.StaticBuilderImpl
+            implements ${bulkCallerName}.Builder {
+                private ${className}Impl serviceImpl;
+                private ${defaultImplName} defaultArgs;
+                private List<${bulkCallerName}.BeforeCallListener> beforeCallListeners;
+                private List<${bulkCallerName}.SuccessListener>    successListeners;
+                private List<${bulkCallerName}.FailureListener>    failureListeners;
+                private ${builderImplName}(${className}Impl serviceImpl) {
+                    this.serviceImpl = serviceImpl;${threadInit}${defaultThreadInit}${builderConstructorImpl}
+                }
+                @Override
+                public ${bulkCallerImplName} build() {
+                    return new ${bulkCallerImplName}(serviceImpl, this);
+                }
+                @Override
+                public ${builderImplName} defaultArgs(${defaultSig}) {
+                    this.defaultArgs = new ${defaultImplName}(${defaultList});
+                    return this;
+                }
+                @Override
+                public ${builderImplName} beforeCall(${bulkCallerName}.BeforeCallListener listener) {
+                    if (this.beforeCallListeners == null)
+                        this.beforeCallListeners = new ArrayList<>();
+                    this.beforeCallListeners.add(listener);
+                    return this;
+                }
+                @Override
+                public ${builderImplName} beforeCall(List<${bulkCallerName}.BeforeCallListener> listeners) {
+                    if (this.beforeCallListeners == null)
+                        this.beforeCallListeners = listeners;
+                    else
+                        this.beforeCallListeners.addAll(listeners);
+                    return this;
+                }
+                @Override
+                public ${builderImplName} onSuccess(${bulkCallerName}.SuccessListener listener) {
+                    if (this.successListeners == null)
+                        this.successListeners = new ArrayList<>();
+                    this.successListeners.add(listener);
+                    return this;
+                }
+                @Override
+                public ${builderImplName} onSuccess(List<${bulkCallerName}.SuccessListener> listeners) {
+                    if (this.successListeners == null)
+                        this.successListeners = listeners;
+                    else
+                        this.successListeners.addAll(listeners);
+                    return this;
+                }
+                @Override
+                public ${builderImplName} onFailure(${bulkCallerName}.FailureListener listener) {
+                    if (this.failureListeners == null)
+                        this.failureListeners = new ArrayList<>();
+                    this.failureListeners.add(listener);
+                    return this;
+                }
+                @Override
+                public ${builderImplName} onFailure(List<${bulkCallerName}.FailureListener> listeners) {
+                    if (this.failureListeners == null)
+                        this.failureListeners = listeners;
+                    else
+                        this.failureListeners.addAll(listeners);
+                    return this;
+                }${threadCountImpl}${builderMethodImpl}
+// TODO: other methods
+            }
+    """
+    bulkCallerImpl.add(bulkCallerImplSource)
+
+/* TODO:
+
+fnclassgen.kt
+/home/ehennum/git/java-client-api/ml-development-tools/src/test/ml-modules/root/dbfunctiondef/positive/batcher/service.json /home/ehennum/git/java-client-api/ml-development-tools/src/test/java
+
+1.  threads per forest, forest param name
+
+    test
+        - setting 2 cluster threads = threadFor cluster
+
+2.  cleanup
+
+    update story
+
+    keep the strategy in the caller name as an indicator of how to use the caller?
+
+    "$javaBulk"{
+        "strategy": "queueArgs" | "batchValues" | "generateArgs",
+
+        "threadFor": "cluster" | "forest"
+        "defaultThreadCount":
+        "forestParamName":
+
+        "batchedParam": "...",
+        "defaultBatchSize":...
+    }
+
+    default for initial
+
+    no need for lists of listeners?  just build in the internal stuff
+
+    arrays for multiple
+        use in any method that is batched
+        support opt-in by any service declaration
+
+    consolidate defaulting and prepare(taskNumber, args)?
+
+    validate nullability
+        bulk - for all params when arguments are added after interpolating defaults
+        batched - for non-batched params from defaults on build; for batched param
+        generate - after beforeCall prepare
+
+    qualify all base calls with super().
+
+    success loops within a single task, so same forest when generating args
+
+    no hosts because elastic in DHS
+
+    logging
+
+    class imports - maybe a single accumulator for all fragments?
+
+    defaultArgs
+        emit only if defaultableParams !== null
+        implemented as a special case of a predefined beforeCall() listener
+        only atomics and byte[] or String representations of nodes
+        need to convert streams to and from a stored array representation
+        optimize later by supplying the call fields
+
+    may need extends on batched datatype
+
+    incrementer implemented as a special case of success listener
+
+    chain listeners -- builtin listeners last
+
+    cannot access streaming value in multiple listeners
+
+    validate on
+        generation that required parameters are either batched or defaultable
+        build() that required parameters are either batched or defaulted
+
+    $javaClass should be optional if base is specified
+
+3.  failover while preserving forest during arg generator iteration
+
+4.  proper base relation
+5.  proper dynamic relation
+6.  negative tests including concurrency
+7.  javadoc
+ */
+  }
+  fun extractParamNames(funcParams: List<ObjectNode>?) : List<String>? {
+    val list =
+        if (funcParams === null || funcParams.isEmpty()) null
+        else funcParams.map{funcParam -> funcParam.get("name").asText()}
+    return list
+  }
+  fun makeParamList(paramNames: List<String>?) : String {
+    val names =
+        if (paramNames === null) ""
+        else paramNames.joinToString(", ")
+    return names
+  }
+  fun makeParamSig(funcParams: List<ObjectNode>?) : String {
+    val signature =
+        if (funcParams === null || funcParams.isEmpty()) ""
+        else funcParams.map{funcParam ->
+            val paramName    = funcParam.get("name").asText()
+            val paramType    = funcParam.get("datatype").asText()
+            val paramKind    = funcParam.get("dataKind").asText()
+            val paramMapping = funcParam.get("\$javaClass")?.asText()
+            val isMultiple   = funcParam.get("multiple")?.asBoolean() == true
+            val mappedType   = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
+            val sigType      = getSigDataType(mappedType, isMultiple)
+            """${sigType} ${paramName}"""
+            }.joinToString(", ")
+    return signature
+  }
+  fun makeParamConstructor(className: String, paramSig: String, paramNames: List<String>?) : String {
+    val constructor =
+        if (paramNames === null) ""
+        else """
+                private ${className}(${paramSig}) {${
+        paramNames.map{paramName ->
+            """
+                    set${paramName.capitalize()}(${paramName});"""
+            }.joinToString("")}
+                }"""
+    return constructor
+  }
+  fun makeParamFields(funcParams: List<ObjectNode>?) : String {
+    val fields =
+        if (funcParams === null || funcParams.isEmpty()) ""
+        else funcParams.map{funcParam ->
+            val paramName    = funcParam.get("name").asText()
+            val paramType    = funcParam.get("datatype").asText()
+            val paramKind    = funcParam.get("dataKind").asText()
+            val paramMapping = funcParam.get("\$javaClass")?.asText()
+            val isMultiple   = funcParam.get("multiple")?.asBoolean() == true
+            val mappedType   = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
+            val sigType      = getSigDataType(mappedType, isMultiple)
+            """private ${sigType} arg_${paramName};
+                """
+            }.joinToString("")
+    return fields
+  }
+  fun makeParamMethods(override: Boolean, funcParams: List<ObjectNode>?) : String {
+    val getterAccess =
+        if (override)
+          """@Override
+                public """
+        else "private "
+    val methods =
+        if (funcParams === null || funcParams.isEmpty()) ""
+        else funcParams.map{funcParam ->
+            val paramName    = funcParam.get("name").asText()
+            val paramType    = funcParam.get("datatype").asText()
+            val paramKind    = funcParam.get("dataKind").asText()
+            val paramMapping = funcParam.get("\$javaClass")?.asText()
+            val isMultiple   = funcParam.get("multiple")?.asBoolean() == true
+            val mappedType   = getJavaDataType(paramType, paramMapping, paramKind, isMultiple)
+            val sigType      = getSigDataType(mappedType, isMultiple)
+            """
+                ${getterAccess}${sigType} get${paramName.capitalize()}(){
+                    return arg_${paramName};
+                }
+                private void set${paramName.capitalize()}(${sigType} value){
+                    this.arg_${paramName} = value;
+                }"""
+            }.joinToString("")
+    return methods
+  }
+  fun paramConverter(paramName: String, paramKind: String, paramType: String, mappedType: String, isNullable: Boolean) : String {
+    val converter =
+          """BaseProxy.${paramKind}Param("${paramName}", ${isNullable}, BaseProxy.${typeConverter(paramType)}.from${
+          if (mappedType.contains("."))
+            mappedType.substringAfterLast(".").capitalize()
+          else
+            mappedType.capitalize()
+          }(${paramName}))"""
+    return converter
   }
   fun typeConverter(datatype: String) : String {
     val converter =
@@ -799,7 +1681,7 @@ declare option xdmp:mapping "false";
   }
 
   // entry point for ServiceCompareTask
-  fun compareServices(customServDeclFilename: String, baseServDeclFilename: String? = null) {
+  fun compareServices(customServDeclFilename: String, baseServDeclFilenameParam: String? = null) {
     val mapper = jacksonObjectMapper()
 
     val customServDeclFile = File(customServDeclFilename)
@@ -808,8 +1690,8 @@ declare option xdmp:mapping "false";
     val customEndpointDirectory = getEndpointDirectory(customServDeclFilename, customServdef)
 
     var baseServDeclFilename =
-        if (baseServDeclFilename != null)
-            baseServDeclFilename
+        if (baseServDeclFilenameParam != null)
+          baseServDeclFilenameParam
         else resolveBaseEndpointDirectory(
             customServDeclFilename, customServDeclFile, customServdef, customEndpointDirectory
             )

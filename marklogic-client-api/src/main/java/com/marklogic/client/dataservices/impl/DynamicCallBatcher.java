@@ -27,7 +27,7 @@ import com.marklogic.client.datamovement.JobTicket;
 import com.marklogic.client.dataservices.impl.CallManager.CallArgs;
 
 /**
- * A CallBatcher executes multiple concurrent calls to a Data Service endpoint
+ * A DynamicCallBatcher executes multiple concurrent calls to a Data Service endpoint
  * for bulk ingest, egress, or reprocessing.
  *
  * You can pass the arguments for each call, pass the values to batch
@@ -41,60 +41,60 @@ import com.marklogic.client.dataservices.impl.CallManager.CallArgs;
  * providing input.
  *
  * You construct a caller using CallManager and then call the batcher()
- * method on the caller to build a CallBatcher.
- * @param <W>  the type of the input passed to the add() method of the CallBatcher
+ * method on the caller to build a DynamicCallBatcher.
+ * @param <W>  the type of the input passed to the add() method of the DynamicCallBatcher
  * @param <E>  the CallEvent subinterface for the results of a successful call
  */
-public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher {
+public interface DynamicCallBatcher<W,E extends DynamicCallBatcher.CallEvent> extends Batcher {
     /**
      * Registers a lambda function for processing the CallEvent for a successful call.
      * @param listener  the lambda function for a successful result
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> onCallSuccess(CallSuccessListener<E> listener);
+    DynamicCallBatcher<W,E> onCallSuccess(CallSuccessListener<E> listener);
     /**
      * Registers a lambda function for handling a failed call.  The function
      * receives the input arguments for the call and the exception
      * @param listener  the lambda function for a failure
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> onCallFailure(CallFailureListener listener);
+    DynamicCallBatcher<W,E> onCallFailure(CallFailureListener listener);
     /**
      * Specifies the size of the batch when passing input for a single
      * parameter. The batch size must be 1 or greater in this case.
      *
      * For all other input, the batch size must be exactly one.
      * @param batchSize the batch size
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> withBatchSize(int batchSize);
+    DynamicCallBatcher<W,E> withBatchSize(int batchSize);
     /**
      * Specifies the forests when partitioning work based on forests.
      * @param forestConfig the updated list of forests with thier hosts
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> withForestConfig(ForestConfiguration forestConfig);
+    DynamicCallBatcher<W,E> withForestConfig(ForestConfiguration forestConfig);
     /**
      * Assigns an identifier to the job that identifies a set of calls
      * to the Data Service endpoint.
      * @param jobId the unique id you would like to assign to this job
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> withJobId(String jobId);
+    DynamicCallBatcher<W,E> withJobId(String jobId);
     /**
      * Assigns a name to the job that identifies a set of calls
      * to the Data Service endpoint.
      * @param jobName the name you would like to assign to this job
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> withJobName(String jobName);
+    DynamicCallBatcher<W,E> withJobName(String jobName);
     /**
      * Specifies the number of concurrent calls to make
      * to the Data Service endpoint.
      * @param threadCount the number of threads to use
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> withThreadCount(int threadCount);
+    DynamicCallBatcher<W,E> withThreadCount(int threadCount);
     /**
      * Specifies default values for parameters when input for the parameters
      * is not otherwise provided.
@@ -104,9 +104,9 @@ public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher 
      * Specifying defaults can be particularly useful when batching the values
      * for a single parameter.
      * @param args  one or more parameters for the caller
-     * @return  the CallBatcher for chaining with other configuration methods
+     * @return  the DynamicCallBatcher for chaining with other configuration methods
      */
-    CallBatcher<W,E> withDefaultArgs(CallManager.CallArgs args);
+    DynamicCallBatcher<W,E> withDefaultArgs(CallManager.CallArgs args);
 
     /**
      * Gets the listeners that process results for successful calls.
@@ -125,21 +125,21 @@ public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher 
      */
     DataMovementManager getDataMovementManager();
     /**
-     * Starts the job.  Thereafter, the CallBatcher accepts input
+     * Starts the job.  Thereafter, the DynamicCallBatcher accepts input
      * and starts making concurrent calls in multiple threads.
      *
      * This method is a convenience for calling the equivalent
-     * method on the DataMovementManager with the CallBatcher.
+     * method on the DataMovementManager with the DynamicCallBatcher.
      * @return the ticket associated with this execution of the job
      */
     JobTicket startJob();
     /**
-     * Stops the job.  Thereafter, the CallBatcher stops making
+     * Stops the job.  Thereafter, the DynamicCallBatcher stops making
      * calls.  To finish all queued calls, execute flushAndWait()
      * before stopping the job.
      *
      * This method is a convenience for calling the equivalent
-     * method on the DataMovementManager with the CallBatcher.
+     * method on the DataMovementManager with the DynamicCallBatcher.
      */
     void stopJob();
 
@@ -159,15 +159,15 @@ public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher 
     /**
      * Input for calls to the endpoint.
      *
-     * When the CallBatcher batches the values for one parameter,
+     * When the DynamicCallBatcher batches the values for one parameter,
      * the input is a value.
      *
-     * When the CallBatcher takes complete arguments for calls,
+     * When the DynamicCallBatcher takes complete arguments for calls,
      * the input is a CallArgs object constructed with the caller.
      * @param input  one input for a call
-     * @return  the CallBatcher for chaining with other add() calls
+     * @return  the DynamicCallBatcher for chaining with other add() calls
      */
-    CallBatcher<W,E> add(W input);
+    DynamicCallBatcher<W,E> add(W input);
     /**
      * Input for calls to the endpoint.
      *
@@ -250,7 +250,7 @@ public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher 
     void retryWithFailureListeners(E event);
 
     /**
-     * Builds a CallBatcher by specifying whether to pass the arguments for each call,
+     * Builds a DynamicCallBatcher by specifying whether to pass the arguments for each call,
      * pass the values to batch for a parameter, or execute a generator function
      * to produce the arguments for each call.
      *
@@ -260,25 +260,25 @@ public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher 
      */
     interface CallBatcherBuilder<E extends CallEvent> {
         /**
-         * Builds a CallBatcher that takes input values for a parameter, making
+         * Builds a DynamicCallBatcher that takes input values for a parameter, making
          * a call after accumulating a batch of values for the parameter.
          *
-         * You pass the values to the add() method of the built CallBatcher.
+         * You pass the values to the add() method of the built DynamicCallBatcher.
          * @param paramName  the name of the parameter receiving the values
          * @param as  the class specifying the type of the input values
          * @param <W>  the type of the input values
-         * @return  a CallBatcher that accepts the input and makes calls with the caller
+         * @return  a DynamicCallBatcher that accepts the input and makes calls with the caller
          */
-        <W> CallBatcher<W,E> forBatchedParam(String paramName, Class<W> as);
+        <W> DynamicCallBatcher<W,E> forBatchedParam(String paramName, Class<W> as);
         /**
-         * Builds a CallBatcher that takes input arguments, making a call
+         * Builds a DynamicCallBatcher that takes input arguments, making a call
          * for each input item.
          *
          * You use the args() method of the caller to construct the arguments
-         * to pass to the add() method of the built CallBatcher.
-         * @return  a CallBatcher that accepts the input and makes calls with the caller
+         * to pass to the add() method of the built DynamicCallBatcher.
+         * @return  a DynamicCallBatcher that accepts the input and makes calls with the caller
          */
-        CallBatcher<CallManager.CallArgs,E> forArgs();
+        DynamicCallBatcher<CallArgs,E> forArgs();
         /**
          * Takes a callback for generating the arguments for calls. 
          * The callback takes the CallEvent from the previous call in the thread and returns 
@@ -287,9 +287,9 @@ public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher 
          *  is considered complete. 
          * 
          * @param generator instance implementing {@link CallArgsGenerator}
-         * @return a CallBatcher for chaining with other methods.
+         * @return a DynamicCallBatcher for chaining with other methods.
          */
-        CallBatcher<Void,E> forArgsGenerator(CallArgsGenerator<E> generator);
+        DynamicCallBatcher<Void,E> forArgsGenerator(CallArgsGenerator<E> generator);
         /**
          * Takes a callback and the forest name for generating the arguments for calls. 
          * The callback takes the CallEvent and the forest name from the previous call in 
@@ -297,9 +297,9 @@ public interface CallBatcher<W,E extends CallBatcher.CallEvent> extends Batcher 
          * 
          * @param generator instance implementing {@link CallArgsGenerator}
          * @param forestName is the name of the forest.
-         * @return a CallBatcher for chaining with other methods.
+         * @return a DynamicCallBatcher for chaining with other methods.
          */
-        CallBatcher<Void,E> forArgsGenerator(CallArgsGenerator<E> generator, String forestName);
+        DynamicCallBatcher<Void,E> forArgsGenerator(CallArgsGenerator<E> generator, String forestName);
     }
     
     @FunctionalInterface

@@ -21,6 +21,7 @@ import static org.junit.Assert.*;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -28,9 +29,8 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import com.marklogic.client.DatabaseClient;
-import com.marklogic.client.dataservices.impl.CallBatcher;
 import com.marklogic.client.dataservices.impl.CallManager;
-import com.marklogic.client.dataservices.impl.CallBatcher.OneCallEvent;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher.OneCallEvent;
 import com.marklogic.client.document.JSONDocumentManager;
 import com.marklogic.client.io.DocumentMetadataHandle;
 import com.marklogic.client.query.DeleteQueryDefinition;
@@ -44,7 +44,7 @@ public class DataservicesPerForestTest {
     private static DatabaseClient db = Common.connect();
     private static CallManager callMgr = CallManager.on(db);
     private static EndpointUtil endpointUtil = new EndpointUtil(callMgr, ENDPOINT_DIRECTORY);
-    private static CallBatcher<Void, OneCallEvent<String>> batcher;
+    private static DynamicCallBatcher<Void, OneCallEvent<String>> batcher;
     private static CallManager.OneCaller<String> caller;
     private static CallManager.CallableEndpoint callableEndpoint;
     

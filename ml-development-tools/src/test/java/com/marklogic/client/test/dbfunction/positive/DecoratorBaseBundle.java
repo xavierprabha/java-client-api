@@ -4,6 +4,8 @@ package com.marklogic.client.test.dbfunction.positive;
 
 import com.marklogic.client.io.Format;
 
+import java.util.List;
+import java.util.ArrayList;
 
 import com.marklogic.client.DatabaseClient;
 import com.marklogic.client.io.marker.JSONWriteHandle;
@@ -44,25 +46,34 @@ public interface DecoratorBaseBundle {
      */
     static DecoratorBaseBundle on(DatabaseClient db, JSONWriteHandle serviceDeclaration) {
         final class DecoratorBaseBundleImpl implements DecoratorBaseBundle {
-            private BaseProxy baseProxy;
+            private DatabaseClient dbClient;
+            private BaseProxy      baseProxy;
+
+            private BaseProxy.DBFunctionRequest req_docify;
 
             private DecoratorBaseBundleImpl(DatabaseClient dbClient, JSONWriteHandle servDecl) {
-                baseProxy = new BaseProxy(dbClient, "/dbf/test/decoratorBase/", servDecl);
+                this.dbClient  = dbClient;
+                this.baseProxy = new BaseProxy("/dbf/test/decoratorBase/", servDecl);
+
+                this.req_docify = this.baseProxy.request(
+                    "docify.sjs", BaseProxy.ParameterValuesKind.SINGLE_ATOMIC);
             }
 
             @Override
             public com.fasterxml.jackson.databind.JsonNode docify(String value) {
-              return BaseProxy.JsonDocumentType.toJsonNode(
-                baseProxy
-                .request("docify.sjs", BaseProxy.ParameterValuesKind.SINGLE_ATOMIC)
-                .withSession()
-                .withParams(
-                    BaseProxy.atomicParam("value", true, BaseProxy.StringType.fromString(value)))
-                .withMethod("POST")
-                .responseSingle(true, Format.JSON)
+                return docify(
+                    this.req_docify.on(this.dbClient), value
+                    );
+            }
+            private com.fasterxml.jackson.databind.JsonNode docify(BaseProxy.DBFunctionRequest request, String value) {
+                return BaseProxy.JsonDocumentType.toJsonNode(
+                    request
+                      .withParams(
+                          BaseProxy.atomicParam("value", true, BaseProxy.StringType.fromString(value))
+                          )
+                      .responseSingle(true, Format.JSON)
                 );
             }
-
         }
 
         return new DecoratorBaseBundleImpl(db, serviceDeclaration);

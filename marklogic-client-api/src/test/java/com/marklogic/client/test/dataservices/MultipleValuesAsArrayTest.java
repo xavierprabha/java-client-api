@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
 
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -32,7 +33,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import com.marklogic.client.DatabaseClient;
-import com.marklogic.client.dataservices.impl.CallBatcher;
 import com.marklogic.client.dataservices.impl.CallManager;
 import com.marklogic.client.document.JSONDocumentManager;
 import com.marklogic.client.impl.NodeConverter;
@@ -118,7 +118,7 @@ public class MultipleValuesAsArrayTest {
 
         CallManager.ManyCaller<Reader> manyCaller = callableEndpoint.returningMany(Reader.class);
 
-        CallBatcher<Void, CallBatcher.ManyCallEvent<Reader>> batcher = manyCaller.batcher().forArgsGenerator(result -> {
+        DynamicCallBatcher<Void, DynamicCallBatcher.ManyCallEvent<Reader>> batcher = manyCaller.batcher().forArgsGenerator(result -> {
             if (result == null && output.counter == 0) {
                 output.counter++;
                 output.args = manyCaller.args().param("param1", handles);
@@ -160,7 +160,7 @@ public class MultipleValuesAsArrayTest {
 
         CallManager.ManyCaller<Reader> manyCaller = callableEndpoint.returningMany(Reader.class);
 
-        CallBatcher<Void, CallBatcher.ManyCallEvent<Reader>> batcher = manyCaller.batcher().forArgsGenerator(result -> {
+        DynamicCallBatcher<Void, DynamicCallBatcher.ManyCallEvent<Reader>> batcher = manyCaller.batcher().forArgsGenerator(result -> {
             if (result == null && output.counter == 0) {
                 output.counter++;
                 output.args = manyCaller.args().param("param1", input);

@@ -1,0 +1,14 @@
+{
+  "functionName": "argsForNone",
+  "params": [ {
+      "name":     "param1",
+      "datatype": "string"
+    }, {
+      "name":     "param2",
+      "datatype": "jsonDocument",
+      "nullable": true
+    } ],
+  "$javaBulk": {
+    "strategy": "queueArgs"
+  }
+}

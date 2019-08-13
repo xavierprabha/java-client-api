@@ -29,7 +29,7 @@ import com.marklogic.client.impl.RESTServices.UnbufferedMultipleNodeCallField;
 import com.marklogic.client.impl.RESTServices.BufferedMultipleNodeCallField;
 import com.marklogic.client.impl.RESTServices.SingleAtomicCallField;
 import com.marklogic.client.impl.RESTServices.SingleCallResponse;
-import com.marklogic.client.impl.RESTServices.BufferedSingleNodeCallField;
+import com.marklogic.client.impl.RESTServices.SingleNodeCallField;
 import com.marklogic.client.impl.SessionStateImpl;
 import com.marklogic.client.io.Format;
 import com.marklogic.client.io.marker.*;
@@ -463,7 +463,7 @@ public class CallManagerImpl implements CallManager {
     abstract CallableEndpointImpl getEndpoint();
   }
 
-  static class NoneCallerImpl extends CallerImpl<CallBatcher.CallEvent> implements NoneCaller {
+  static class NoneCallerImpl extends CallerImpl<DynamicCallBatcher.CallEvent> implements NoneCaller {
     NoneCallerImpl(CallableEndpointImpl endpoint) {
        super(endpoint);
      }
@@ -483,16 +483,16 @@ public class CallManagerImpl implements CallManager {
       startRequest(client, (CallArgsImpl) args).responseNone();
     }
     @Override
-	public CallBatcher.CallBatcherBuilder<CallBatcher.CallEvent> batcher() {
-      return new CallBatcherImpl.BuilderImpl(getEndpoint().getPrimaryClient(), this);
+	public DynamicCallBatcher.CallBatcherBuilder<DynamicCallBatcher.CallEvent> batcher() {
+      return new DynamicCallBatcherImpl.BuilderImpl(getEndpoint().getPrimaryClient(), this);
 	}
     @Override
-    public CallBatcher.CallEvent callForEvent(DatabaseClient client, CallArgs args) throws Exception {
+    public DynamicCallBatcher.CallEvent callForEvent(DatabaseClient client, CallArgs args) throws Exception {
       callImpl(client, args);
-      return new CallBatcherImpl.CallEventImpl(client, args);
+      return new DynamicCallBatcherImpl.CallEventImpl(client, args);
     }
   }
-  private static class OneCallerImpl<R> extends CallerImpl<CallBatcher.OneCallEvent<R>> implements OneCaller<R> {
+  private static class OneCallerImpl<R> extends CallerImpl<DynamicCallBatcher.OneCallEvent<R>> implements OneCaller<R> {
     private ReturnConverter<R> converter;
     private Format             format;
 
@@ -517,15 +517,15 @@ public class CallManagerImpl implements CallManager {
       return converter.one(startRequest(client, (CallArgsImpl) args).responseSingle(getEndpoint().isNullable(), format));
     }
     @Override
-	public CallBatcher.CallBatcherBuilder<CallBatcher.OneCallEvent<R>> batcher() {
-      return new CallBatcherImpl.BuilderImpl(getEndpoint().getPrimaryClient(),this);
+	public DynamicCallBatcher.CallBatcherBuilder<DynamicCallBatcher.OneCallEvent<R>> batcher() {
+      return new DynamicCallBatcherImpl.BuilderImpl(getEndpoint().getPrimaryClient(),this);
 	}
     @Override
-    public CallBatcher.OneCallEvent<R> callForEvent(DatabaseClient client, CallArgs args) throws Exception {
-      return new CallBatcherImpl.OneCallEventImpl(client, args, callImpl(client, args));
+    public DynamicCallBatcher.OneCallEvent<R> callForEvent(DatabaseClient client, CallArgs args) throws Exception {
+      return new DynamicCallBatcherImpl.OneCallEventImpl(client, args, callImpl(client, args));
     }
   }
-  static class ManyCallerImpl<R> extends CallerImpl<CallBatcher.ManyCallEvent<R>> implements ManyCaller<R> {
+  static class ManyCallerImpl<R> extends CallerImpl<DynamicCallBatcher.ManyCallEvent<R>> implements ManyCaller<R> {
     private ReturnConverter<R> converter;
     private Format             format;
 
@@ -550,19 +550,19 @@ public class CallManagerImpl implements CallManager {
       return converter.many(startRequest(client, (CallArgsImpl) args).responseMultiple(getEndpoint().isNullable(), format));
     }
     @Override
-	public CallBatcher.CallBatcherBuilder<CallBatcher.ManyCallEvent<R>> batcher() {
-      return new CallBatcherImpl.BuilderImpl(getEndpoint().getPrimaryClient(),this);
+	public DynamicCallBatcher.CallBatcherBuilder<DynamicCallBatcher.ManyCallEvent<R>> batcher() {
+      return new DynamicCallBatcherImpl.BuilderImpl(getEndpoint().getPrimaryClient(),this);
 	}
     @Override
-    public CallBatcher.ManyCallEvent<R> callForEvent(DatabaseClient client, CallArgs args) throws Exception {
-      return new CallBatcherImpl.ManyCallEventImpl(client, args, callImpl(client, args));
+    public DynamicCallBatcher.ManyCallEvent<R> callForEvent(DatabaseClient client, CallArgs args) throws Exception {
+      return new DynamicCallBatcherImpl.ManyCallEventImpl(client, args, callImpl(client, args));
     }
   }
 
-  interface EventedCaller<E extends CallBatcher.CallEvent> extends EndpointDefiner {
+  interface EventedCaller<E extends DynamicCallBatcher.CallEvent> extends EndpointDefiner {
     E callForEvent(DatabaseClient client, CallArgs args) throws Exception;
   }
-  static abstract class CallerImpl<E extends CallBatcher.CallEvent> extends EndpointDefinerImpl implements EventedCaller<E> {
+  static abstract class CallerImpl<E extends DynamicCallBatcher.CallEvent> extends EndpointDefinerImpl implements EventedCaller<E> {
     private CallableEndpointImpl endpoint;
     CallerImpl(CallableEndpointImpl endpoint) {
       this.endpoint = endpoint;
@@ -613,8 +613,10 @@ public class CallManagerImpl implements CallManager {
     }
     BaseProxy.DBFunctionRequest makeRequest(DatabaseClient client, CallArgsImpl callArgs) {
       BaseProxy.DBFunctionRequest request = BaseProxy.request(
-          client, endpoint.getEndpointDirectory(), endpoint.getModule(), endpoint.getParameterValuesKind()
+          endpoint.getEndpointDirectory(), endpoint.getModule(), endpoint.getParameterValuesKind()
       );
+
+      request = request.on(client);
 
       Paramdef sessiondef = endpoint.getSessiondef();
       request = (sessiondef == null) ?
@@ -1284,7 +1286,7 @@ public class CallManagerImpl implements CallManager {
              super.fieldifierFor(name, type);
     }
     CallField formattedField(String name, BufferableHandle value) {
-      return new BufferedSingleNodeCallField(name, value);
+      return new SingleNodeCallField(name, value);
     }
     CallField formattedField(String name, BufferableHandle[] values) {
         return new BufferedMultipleNodeCallField(name, values);

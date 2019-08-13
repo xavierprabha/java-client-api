@@ -1,0 +1,19 @@
+{
+  "functionName": "argsForMany",
+  "params": [ {
+      "name":     "param1",
+      "datatype": "string"
+    }, {
+      "name":        "param2",
+      "datatype":    "jsonDocument",
+      "nullable":    true,
+      "$javaClass" : "java.lang.String"
+  } ],
+  "return": {
+    "datatype": "jsonDocument",
+    "multiple": true
+  },
+  "$javaBulk": {
+    "strategy": "queueArgs"
+  }
+}

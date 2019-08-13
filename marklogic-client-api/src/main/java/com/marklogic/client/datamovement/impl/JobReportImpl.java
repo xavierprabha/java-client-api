@@ -18,7 +18,7 @@ package com.marklogic.client.datamovement.impl;
 import java.util.Calendar;
 
 import com.marklogic.client.datamovement.*;
-import com.marklogic.client.dataservices.impl.CallBatcher;
+import com.marklogic.client.dataservices.impl.DynamicCallBatcher;
 
 public class JobReportImpl implements JobReport {
 
@@ -36,7 +36,7 @@ public class JobReportImpl implements JobReport {
     JobTicket.JobType jobType = ticket.getJobType();
     switch(jobType) {
       case CALL_BATCHER:
-        return new JobReportImpl((CallBatcher) batcher);
+        return new JobReportImpl((DynamicCallBatcher) batcher);
       case QUERY_BATCHER:
         return new JobReportImpl((QueryBatcher) batcher);
       case WRITE_BATCHER:
@@ -50,7 +50,7 @@ public class JobReportImpl implements JobReport {
     }
   }
 
-  public JobReportImpl(CallBatcher batcher) {
+  public JobReportImpl(DynamicCallBatcher batcher) {
 // TODO
   }
 

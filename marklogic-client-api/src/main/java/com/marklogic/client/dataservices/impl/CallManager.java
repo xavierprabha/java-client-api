@@ -126,7 +126,7 @@ public interface CallManager {
          * Constructs a batcher of type CallEvent.
          * @return the CallBatcherBuilder of type CallEvent.
          */
-        CallBatcher.CallBatcherBuilder<CallBatcher.CallEvent> batcher();
+        DynamicCallBatcher.CallBatcherBuilder<DynamicCallBatcher.CallEvent> batcher();
     }
     interface OneCaller<R> extends EndpointDefiner {
         /**
@@ -148,7 +148,7 @@ public interface CallManager {
          * Constructs a batcher of type OneCallEvent.
          * @return the CallBatcherBuilder of type OneCallEvent.
          */
-        CallBatcher.CallBatcherBuilder<CallBatcher.OneCallEvent<R>> batcher();
+        DynamicCallBatcher.CallBatcherBuilder<DynamicCallBatcher.OneCallEvent<R>> batcher();
     }
     interface ManyCaller<R> extends EndpointDefiner {
         /**
@@ -170,7 +170,7 @@ public interface CallManager {
          * Constructs a batcher of type ManyCallEvent.
          * @return the CallBatcherBuilder of type ManyCallEvent.
          */
-        CallBatcher.CallBatcherBuilder<CallBatcher.ManyCallEvent<R>> batcher();
+        DynamicCallBatcher.CallBatcherBuilder<DynamicCallBatcher.ManyCallEvent<R>> batcher();
     }
     interface EndpointDefiner {
         /**

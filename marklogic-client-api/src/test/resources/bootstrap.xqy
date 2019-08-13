@@ -541,6 +541,13 @@ declare function bootstrap:security-config() {
         if ( "SEC-ROLEEXISTS" = $e/error:code ) then xdmp:log("write-privileged role exists")
         else xdmp:log($e)
     },
+    try {
+        bootstrap:security-eval(
+            'sec:privilege-add-roles("http://marklogic.com/xdmp/privileges/eval-search-string", "execute", ("rest-extension-user","rest-reader-internal"))'
+            )
+    } catch($e) {
+        xdmp:log(head($e/*:format-string)/string(.))
+    },
     bootstrap:security-eval(
         'sec:privilege-add-roles("http://marklogic.com/xdmp/privileges/xdbc-eval", "execute", "rest-evaluator")'),
     bootstrap:security-eval(
