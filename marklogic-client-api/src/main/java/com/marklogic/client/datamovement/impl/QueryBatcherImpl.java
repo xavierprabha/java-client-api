@@ -89,6 +89,8 @@ public class QueryBatcherImpl extends BatcherImpl implements QueryBatcher {
   private JobTicket jobTicket;
   private Calendar jobStartTime;
   private Calendar jobEndTime;
+  private long maxUris = Long.MAX_VALUE;
+  private AtomicBoolean jobDone = new AtomicBoolean(false);
 
   public QueryBatcherImpl(QueryDefinition query, DataMovementManager moveMgr, ForestConfiguration forestConfig) {
     super(moveMgr);
@@ -606,10 +608,14 @@ public class QueryBatcherImpl extends BatcherImpl implements QueryBatcher {
     public void run() {
       // don't proceed if this forest is marked as done (because we already got the last batch)
       AtomicBoolean isDone = forestIsDone.get(forest);
-      if ( isDone.get() == true ) {
+      if ( isDone.get() == true) {
         logger.error("Attempt to query forest '{}' forestBatchNum {} with start {} after the last batch " +
           "for that forest has already been retrieved", forest.getForestName(), forestBatchNum, start);
         return;
+      }
+      if(jobDone.get()) {
+          logger.info("The number of uris collected has reached the maximum limit.");
+          return;
       }
       // don't proceed if this job is stopped (because dataMovementManager.stopJob was called)
       if ( stopped.get() == true ) {
@@ -662,6 +668,11 @@ public class QueryBatcherImpl extends BatcherImpl implements QueryBatcher {
             .withServerTimestamp(serverTimestamp.get())
             .withJobResultsSoFar(resultsSoFar.addAndGet(uris.size()))
             .withForestResultsSoFar(forestResults.get(forest).addAndGet(uris.size()));
+          
+          if(maxUris <= (resultsSoFar.longValue())) {
+              jobDone.set(true);
+              isDone.set(true);
+          }
 
           logger.trace("batch size={}, jobBatchNumber={}, jobResultsSoFar={}, forest={}", uris.size(),
             batch.getJobBatchNumber(), batch.getJobResultsSoFar(), forest.getForestName());
@@ -760,13 +771,16 @@ public class QueryBatcherImpl extends BatcherImpl implements QueryBatcher {
       try {
         boolean lastBatch = false;
         List<String> uriQueue = new ArrayList<>(getBatchSize());
-        while (iterator.hasNext()) {
+        while (iterator.hasNext() && !lastBatch) {
           uriQueue.add(iterator.next());
           if(!iterator.hasNext()) lastBatch = true;
           // if we've hit batchSize or the end of the iterator
-          if (uriQueue.size() == getBatchSize() || !iterator.hasNext()) {
+          if (uriQueue.size() == getBatchSize() || !iterator.hasNext() || lastBatch) {
             final List<String> uris = uriQueue;
             final boolean finalLastBatch = lastBatch;
+            final long results = resultsSoFar.addAndGet(uris.size());
+            if(maxUris <= results) 
+                lastBatch = true;
             uriQueue = new ArrayList<>(getBatchSize());
             Runnable processBatch = new Runnable() {
               public void run() {
@@ -782,7 +796,7 @@ public class QueryBatcherImpl extends BatcherImpl implements QueryBatcher {
                   DatabaseClient client = currentClientList.get(clientIndex);
                   batch = batch.withJobBatchNumber(currentBatchNumber)
                       .withClient(client)
-                      .withJobResultsSoFar(resultsSoFar.addAndGet(uris.size()))
+                      .withJobResultsSoFar(results)
                       .withItems(uris.toArray(new String[uris.size()]));
                   logger.trace("batch size={}, jobBatchNumber={}, jobResultsSoFar={}", uris.size(),
                       batch.getJobBatchNumber(), batch.getJobResultsSoFar());
@@ -1012,4 +1026,21 @@ public class QueryBatcherImpl extends BatcherImpl implements QueryBatcher {
       return jobEndTime;
     }
   }
+
+@Override
+public void setMaxUris(long results) {
+    this.maxUris = results;
+    
+}
+
+@Override
+public void setMaxUris() {
+    this.maxUris = -1L;
+    
+}
+
+@Override
+public long getMaxUris() {
+    return this.maxUris;
+}
 }
